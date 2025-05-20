@@ -45,7 +45,7 @@ For each entity, provide a brief description that highlights strategic importanc
 REQUIRED ENTITIES:
 - ALWAYS include at least one "Topic" entity for the primary industry of each company discussed (e.g., "Semiconductor Industry", "Social Media", "E-commerce")
 - ALWAYS include at least one "Topic" entity for the overarching theme of the episode (e.g., "Corporate Acquisitions", "Startup Growth", "Tech Innovation")
-- MANDATORY: You MUST identify any of Hamilton Helmer's 7 Powers mentioned in the transcript and create a "Topic" entity for each one:
+- If Hamilton Helmer's 7 Powers framework is discussed, create "Topic" entities for each of the following powers that are ACTUALLY ATTRIBUTED to specific companies (not just mentioned in passing or as examples):
   * Scale Economies - Declining unit costs with increased production
   * Network Economies - Value increases as customer base grows
   * Counter-Positioning - New position that incumbent can't copy without harming their business
@@ -65,10 +65,18 @@ For each relationship, include:
 REQUIRED RELATIONSHIPS:
 - Connect each company to its industry with a relationship (e.g., "operates in", "is part of")
 - Connect the episode theme to relevant entities discussed
-- MANDATORY: For EACH company mentioned in relation to ANY of Hamilton Helmer's 7 Powers, you MUST create a relationship between the company and the power. For example:
-  * "Apple" -> "Scale Economies" with description "Leverages scale economies in manufacturing"
-  * "Facebook" -> "Network Economies" with description "Built business model around network effects"
-  * "Netflix" -> "Counter-Positioning" with description "Used counter-positioning against traditional media companies"
+- For Hamilton Helmer's 7 Powers: ONLY create relationships between companies and powers when the hosts CLEARLY CONCLUDE that a company actually possesses or leverages that specific power. DO NOT create relationships when:
+  * The hosts are just explaining what a power is
+  * The power is mentioned as a hypothetical example
+  * The hosts are discussing the concept but don't attribute it to the company
+  * The hosts explicitly state a company does NOT have that power
+
+CONTEXT UNDERSTANDING:
+- READ THE FULL CONTEXT around any mention of Hamilton Helmer's 7 Powers
+- Pay attention to the hosts' CONCLUSIONS about which powers apply to which companies
+- Distinguish between general discussion of the powers and specific attribution to companies
+- Look for phrases like "they have", "they built", "they leverage", "their power is", etc.
+- Be conservative - only create power relationships when there is clear evidence
 
 Format the output as a JSON object with two arrays:
 1. "entities" - Array of entity objects
@@ -106,11 +114,6 @@ Example response format:
       "name": "Network Economies",
       "type": "Topic",
       "description": "One of Hamilton Helmer's 7 Powers where a product becomes more valuable as more people use it"
-    },
-    {
-      "name": "Switching Costs",
-      "type": "Topic",
-      "description": "One of Hamilton Helmer's 7 Powers where customers face costs when changing to a competitor"
     }
   ],
   "relationships": [
@@ -137,12 +140,7 @@ Example response format:
     {
       "source": "Microsoft",
       "target": "Network Economies",
-      "description": "Leveraged network economies as users became locked into the Windows ecosystem"
-    },
-    {
-      "source": "Microsoft",
-      "target": "Switching Costs",
-      "description": "Created high switching costs through proprietary file formats and APIs"
+      "description": "Leveraged network economies as users became locked into the Windows ecosystem, as concluded by the hosts"
     }
   ]
 }
@@ -155,7 +153,7 @@ IMPORTANT GUIDELINES:
 - Industries like "Healthcare", "Semiconductors", or "Finance" should be categorized as "Topic"
 - Technologies like "AI", "Blockchain", or "Cloud Computing" should be categorized as "Topic"
 - ALWAYS include industry topics for companies and an overarching theme topic for the episode
-- MANDATORY: You MUST identify ANY mention of Hamilton Helmer's 7 Powers and create both the Topic entities and relationships to companies that possess these powers`,
+- BE CAREFUL with Hamilton Helmer's 7 Powers - only create relationships when the hosts clearly conclude that a company possesses a specific power, not when they're just explaining the concept`,
         },
         {
           role: "user",
