@@ -311,97 +311,131 @@ async function extractEntitiesAndRelationships(transcript: string): Promise<{
       messages: [
         {
           role: "system",
-          content: `Extract entities and their relationships from the following podcast transcript. 
+          content: `Extract entities and their relationships from the following podcast transcript using a strategic management lens. Focus on understanding the business context, competitive advantages, and strategic decisions that shaped the companies discussed.
       
-      PART 1: ENTITIES
-      Identify and categorize entities into ONLY these three types:
-      
-      1. "Company" - Business organizations, corporations, startups
-      2. "Person" - Individual people like founders, CEOs, investors, historical figures
-      3. "Topic" - Everything else including products, technologies, concepts, industries, themes, events
-      
-      For each entity, provide a brief description.
-      
-      REQUIRED ENTITIES:
-      - ALWAYS include at least one "Topic" entity for the primary industry of each company discussed (e.g., "Semiconductor Industry", "Social Media", "E-commerce")
-      - ALWAYS include at least one "Topic" entity for the overarching theme of the episode (e.g., "Corporate Acquisitions", "Startup Growth", "Tech Innovation")
-      
-      PART 2: RELATIONSHIPS
-      Identify meaningful relationships between the entities you extracted. Only include relationships that are explicitly mentioned or strongly implied in the transcript.
-      
-      For each relationship, include:
-      1. The source entity name
-      2. The target entity name
-      3. A brief description of how they are related (e.g., "founded by", "acquired", "developed", "invested in")
-      
-      REQUIRED RELATIONSHIPS:
-      - Connect each company to its industry with a relationship (e.g., "operates in", "is part of")
-      - Connect the episode theme to relevant entities discussed
-      
-      Format the output as a JSON object with two arrays:
-      1. "entities" - Array of entity objects
-      2. "relationships" - Array of relationship objects
-      
-      Example response format:
-      {
-        "entities": [
-          {
-            "name": "Microsoft",
-            "type": "Company",
-            "description": "Technology company founded in 1975"
-          },
-          {
-            "name": "Bill Gates",
-            "type": "Person",
-            "description": "Co-founder of Microsoft"
-          },
-          {
-            "name": "Windows",
-            "type": "Topic",
-            "description": "Operating system developed by Microsoft"
-          },
-          {
-            "name": "Software Industry",
-            "type": "Topic",
-            "description": "Industry focused on developing and distributing software products"
-          },
-          {
-            "name": "Tech Pioneers",
-            "type": "Topic",
-            "description": "Overarching theme about early technology innovators and their impact"
-          }
-        ],
-        "relationships": [
-          {
-            "source": "Bill Gates",
-            "target": "Microsoft",
-            "description": "Co-founded Microsoft in 1975"
-          },
-          {
-            "source": "Microsoft",
-            "target": "Windows",
-            "description": "Developed the Windows operating system"
-          },
-          {
-            "source": "Microsoft",
-            "target": "Software Industry",
-            "description": "Operates in the software industry"
-          },
-          {
-            "source": "Tech Pioneers",
-            "target": "Bill Gates",
-            "description": "Bill Gates is considered a tech pioneer, which is a key theme of this episode"
-          }
-        ]
-      }
-      
-      IMPORTANT GUIDELINES:
-      - Only include entities that are significant to the episode's content
-      - Only create relationships between entities that are actually related in context
-      - Products like "iPhone", "Windows", or "MyChart" should be categorized as "Topic"
-      - Industries like "Healthcare", "Semiconductors", or "Finance" should be categorized as "Topic"
-      - Technologies like "AI", "Blockchain", or "Cloud Computing" should be categorized as "Topic"
-      - ALWAYS include industry topics for companies and an overarching theme topic for the episode`,
+PART 1: ENTITIES
+Identify and categorize entities into ONLY these three types:
+
+1. "Company" - Business organizations, corporations, startups
+2. "Person" - Individual people like founders, CEOs, investors, historical figures
+3. "Topic" - Everything else including products, technologies, concepts, industries, themes, events, strategic frameworks
+
+For each entity, provide a brief description that highlights strategic importance when applicable.
+
+REQUIRED ENTITIES:
+- ALWAYS include at least one "Topic" entity for the primary industry of each company discussed (e.g., "Semiconductor Industry", "Social Media", "E-commerce")
+- ALWAYS include at least one "Topic" entity for the overarching theme of the episode (e.g., "Corporate Acquisitions", "Startup Growth", "Tech Innovation")
+- MANDATORY: You MUST identify any of Hamilton Helmer's 7 Powers mentioned in the transcript and create a "Topic" entity for each one:
+  * Scale Economies - Declining unit costs with increased production
+  * Network Economies - Value increases as customer base grows
+  * Counter-Positioning - New position that incumbent can't copy without harming their business
+  * Switching Costs - Customer's value loss when switching to an alternative
+  * Branding - Habitual purchase based on trust beyond utilitarian value
+  * Cornered Resource - Preferential access to a coveted asset
+  * Process Power - Embedded company organization that enables lower costs
+
+PART 2: RELATIONSHIPS
+Identify meaningful relationships between the entities you extracted. Only include relationships that are explicitly mentioned or strongly implied in the transcript.
+
+For each relationship, include:
+1. The source entity name
+2. The target entity name
+3. A brief description of how they are related (e.g., "founded by", "acquired", "developed", "invested in")
+
+REQUIRED RELATIONSHIPS:
+- Connect each company to its industry with a relationship (e.g., "operates in", "is part of")
+- Connect the episode theme to relevant entities discussed
+- MANDATORY: For EACH company mentioned in relation to ANY of Hamilton Helmer's 7 Powers, you MUST create a relationship between the company and the power. For example:
+  * "Apple" -> "Scale Economies" with description "Leverages scale economies in manufacturing"
+  * "Facebook" -> "Network Economies" with description "Built business model around network effects"
+  * "Netflix" -> "Counter-Positioning" with description "Used counter-positioning against traditional media companies"
+
+Format the output as a JSON object with two arrays:
+1. "entities" - Array of entity objects
+2. "relationships" - Array of relationship objects
+
+Example response format:
+{
+  "entities": [
+    {
+      "name": "Microsoft",
+      "type": "Company",
+      "description": "Technology company founded in 1975 that built a dominant position in operating systems"
+    },
+    {
+      "name": "Bill Gates",
+      "type": "Person",
+      "description": "Co-founder of Microsoft who drove its early strategic direction"
+    },
+    {
+      "name": "Windows",
+      "type": "Topic",
+      "description": "Operating system developed by Microsoft that became industry standard"
+    },
+    {
+      "name": "Software Industry",
+      "type": "Topic",
+      "description": "Industry focused on developing and distributing software products"
+    },
+    {
+      "name": "Tech Pioneers",
+      "type": "Topic",
+      "description": "Overarching theme about early technology innovators and their impact"
+    },
+    {
+      "name": "Network Economies",
+      "type": "Topic",
+      "description": "One of Hamilton Helmer's 7 Powers where a product becomes more valuable as more people use it"
+    },
+    {
+      "name": "Switching Costs",
+      "type": "Topic",
+      "description": "One of Hamilton Helmer's 7 Powers where customers face costs when changing to a competitor"
+    }
+  ],
+  "relationships": [
+    {
+      "source": "Bill Gates",
+      "target": "Microsoft",
+      "description": "Co-founded Microsoft in 1975 and shaped its aggressive business strategy"
+    },
+    {
+      "source": "Microsoft",
+      "target": "Windows",
+      "description": "Developed the Windows operating system as its flagship product"
+    },
+    {
+      "source": "Microsoft",
+      "target": "Software Industry",
+      "description": "Operates in the software industry as a dominant player"
+    },
+    {
+      "source": "Tech Pioneers",
+      "target": "Bill Gates",
+      "description": "Bill Gates is considered a tech pioneer, which is a key theme of this episode"
+    },
+    {
+      "source": "Microsoft",
+      "target": "Network Economies",
+      "description": "Leveraged network economies as users became locked into the Windows ecosystem"
+    },
+    {
+      "source": "Microsoft",
+      "target": "Switching Costs",
+      "description": "Created high switching costs through proprietary file formats and APIs"
+    }
+  ]
+}
+
+IMPORTANT GUIDELINES:
+- Analyze the transcript through a strategic management lens, identifying key business strategies, competitive advantages, and market dynamics
+- Only include entities that are significant to the episode's content
+- Only create relationships between entities that are actually related in context
+- Products like "iPhone", "Windows", or "MyChart" should be categorized as "Topic"
+- Industries like "Healthcare", "Semiconductors", or "Finance" should be categorized as "Topic"
+- Technologies like "AI", "Blockchain", or "Cloud Computing" should be categorized as "Topic"
+- ALWAYS include industry topics for companies and an overarching theme topic for the episode
+- MANDATORY: You MUST identify ANY mention of Hamilton Helmer's 7 Powers and create both the Topic entities and relationships to companies that possess these powers`,
         },
         {
           role: "user",
