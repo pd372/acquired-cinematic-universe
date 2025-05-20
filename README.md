@@ -1,30 +1,59 @@
-# Acquired Zettlekasten
+# Acquired Zettelkasten
 
-*Automatically synced with your [v0.dev](https://v0.dev) deployments*
+An interactive knowledge graph visualization for the Acquired podcast.
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/pd372s-projects/v0-acquired-zettlekasten)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.dev-black?style=for-the-badge)](https://v0.dev/chat/projects/Y79jYmUdT7O)
+## Database and Scraping Setup
 
-## Overview
+### Initial Setup
 
-This repository will stay in sync with your deployed chats on [v0.dev](https://v0.dev).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.dev](https://v0.dev).
+1. Copy `.env.example` to `.env` and fill in the required values:
+   \`\`\`
+   cp .env.example .env
+   \`\`\`
 
-## Deployment
+2. Install dependencies:
+   \`\`\`
+   npm install
+   \`\`\`
 
-Your project is live at:
+3. Test the database connection:
+   \`\`\`
+   npm run test-db
+   \`\`\`
 
-**[https://vercel.com/pd372s-projects/v0-acquired-zettlekasten](https://vercel.com/pd372s-projects/v0-acquired-zettlekasten)**
+### Scraping Episodes
 
-## Build your app
+#### Option 1: Using the API directly
 
-Continue building your app on:
+To scrape a single episode:
+\`\`\`
+curl -X POST "http://localhost:3000/api/scrape?url=https://www.acquired.fm/episodes/example-episode" \
+  -H "Authorization: Bearer your-internal-api-key"
+\`\`\`
 
-**[https://v0.dev/chat/projects/Y79jYmUdT7O](https://v0.dev/chat/projects/Y79jYmUdT7O)**
+To scrape all episodes:
+\`\`\`
+curl -X POST "http://localhost:3000/api/scrape?all=true" \
+  -H "Authorization: Bearer your-internal-api-key"
+\`\`\`
 
-## How It Works
+#### Option 2: Using the npm scripts
 
-1. Create and modify your project using [v0.dev](https://v0.dev)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository
+To scrape a specific episode:
+\`\`\`
+npm run scrape https://www.acquired.fm/episodes/example-episode
+\`\`\`
+
+To scrape all episodes:
+\`\`\`
+npm run scrape:all
+\`\`\`
+
+## Development
+
+Run the development server:
+\`\`\`
+npm run dev
+\`\`\`
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.

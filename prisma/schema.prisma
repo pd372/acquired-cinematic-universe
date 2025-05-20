@@ -1,0 +1,66 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Episode {
+  id          String   @id @default(cuid())
+  title       String
+  url         String   @unique
+  publishedAt DateTime?
+  processedAt DateTime @default(now())
+  
+  // Store the transcript in the database
+  transcript  String?  @db.Text
+  
+  // Relationships
+  entities    EntityMention[]
+  connections Connection[]    @relation("EpisodeConnections")
+}
+
+model Entity {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // "Company", "Person", or "Topic"
+  description String?  @db.Text
+  
+  // Relationships
+  mentions    EntityMention[]
+  sourceConnections Connection[] @relation("SourceEntity")
+  targetConnections Connection[] @relation("TargetEntity")
+  
+  // Unique constraint to prevent duplicates
+  @@unique([name, type])
+}
+
+model EntityMention {
+  id        String   @id @default(cuid())
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  episodeId String
+  entity    Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  entityId  String
+  
+  // Unique constraint to prevent duplicate mentions
+  @@unique([episodeId, entityId])
+}
+
+model Connection {
+  id          String   @id @default(cuid())
+  episode     Episode  @relation("EpisodeConnections", fields: [episodeId], references: [id], onDelete: Cascade)
+  episodeId   String
+  sourceEntity Entity   @relation("SourceEntity", fields: [sourceEntityId], references: [id], onDelete: Cascade)
+  sourceEntityId String
+  targetEntity Entity   @relation("TargetEntity", fields: [targetEntityId], references: [id], onDelete: Cascade)
+  targetEntityId String
+  strength    Int      @default(1)
+  
+  // Unique constraint to prevent duplicate connections in the same episode
+  @@unique([episodeId, sourceEntityId, targetEntityId])
+}
