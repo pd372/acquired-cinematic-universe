@@ -165,7 +165,7 @@ export async function processEpisode(
 
     // Extract entities and relationships from transcript
     console.log("Extracting entities and relationships from processed transcript...")
-    const { entities, relationships } = await extractEntitiesAndRelationships(processedTranscript)
+    const { entities, relationships } = await extractEntitiesAndRelationships(processedTranscript, title || "")
     console.log(`Extracted ${entities.length} entities and ${relationships.length} relationships from transcript`)
 
     // Log the first few entities and relationships for debugging
@@ -297,7 +297,10 @@ function extractRelevantTranscriptContent(fullTranscript: string): string {
 }
 
 // Function to extract entities and relationships from transcript using OpenAI
-async function extractEntitiesAndRelationships(transcript: string): Promise<{
+async function extractEntitiesAndRelationships(
+  transcript: string,
+  episodeTitle: string,
+): Promise<{
   entities: any[]
   relationships: any[]
 }> {
@@ -311,9 +314,14 @@ async function extractEntitiesAndRelationships(transcript: string): Promise<{
       messages: [
         {
           role: "system",
-          content: `Extract entities and their relationships from the following podcast transcript using a strategic management lens. Focus on understanding the business context, competitive advantages, and strategic decisions that shaped the companies discussed.
-      
-PART 1: ENTITIES
+          content: `You are a strategic business analyst specializing in identifying key entities, relationships, and competitive advantages from business discussions. Your task is to extract entities and their relationships from the following podcast transcript, with special attention to Hamilton Helmer's 7 Powers framework.
+
+EPISODE TITLE: "${episodeTitle}"
+
+PART 1: IDENTIFY THE MAIN COMPANIES
+First, identify the 1-3 main companies that are the primary focus of this episode. These are the companies whose history, strategy, or business model is being analyzed in depth.
+
+PART 2: ENTITIES
 Identify and categorize entities into ONLY these three types:
 
 1. "Company" - Business organizations, corporations, startups
@@ -325,7 +333,7 @@ For each entity, provide a brief description that highlights strategic importanc
 REQUIRED ENTITIES:
 - ALWAYS include at least one "Topic" entity for the primary industry of each company discussed (e.g., "Semiconductor Industry", "Social Media", "E-commerce")
 - ALWAYS include at least one "Topic" entity for the overarching theme of the episode (e.g., "Corporate Acquisitions", "Startup Growth", "Tech Innovation")
-- If Hamilton Helmer's 7 Powers framework is discussed, create "Topic" entities for each of the following powers that are ACTUALLY ATTRIBUTED to specific companies (not just mentioned in passing or as examples):
+- ALWAYS create "Topic" entities for EACH of Hamilton Helmer's 7 Powers that are discussed in relation to ANY company:
   * Scale Economies - Declining unit costs with increased production
   * Network Economies - Value increases as customer base grows
   * Counter-Positioning - New position that incumbent can't copy without harming their business
@@ -334,8 +342,8 @@ REQUIRED ENTITIES:
   * Cornered Resource - Preferential access to a coveted asset
   * Process Power - Embedded company organization that enables lower costs
 
-PART 2: RELATIONSHIPS
-Identify meaningful relationships between the entities you extracted. Only include relationships that are explicitly mentioned or strongly implied in the transcript.
+PART 3: RELATIONSHIPS
+Create meaningful relationships between the entities you extracted. Ensure ALL entities are connected to the main company(ies) either directly or through other entities.
 
 For each relationship, include:
 1. The source entity name
@@ -344,19 +352,19 @@ For each relationship, include:
 
 REQUIRED RELATIONSHIPS:
 - Connect each company to its industry with a relationship (e.g., "operates in", "is part of")
-- Connect the episode theme to relevant entities discussed
-- For Hamilton Helmer's 7 Powers: ONLY create relationships between companies and powers when the hosts CLEARLY CONCLUDE that a company actually possesses or leverages that specific power. DO NOT create relationships when:
-  * The hosts are just explaining what a power is
-  * The power is mentioned as a hypothetical example
-  * The hosts are discussing the concept but don't attribute it to the company
-  * The hosts explicitly state a company does NOT have that power
+- Connect the episode theme to the main company(ies)
+- Connect each person to their respective company(ies)
+- Connect products/services to their parent companies
+- Connect each main company to relevant topics discussed in the episode
+- CRITICAL: For EACH of Hamilton Helmer's 7 Powers mentioned in the transcript:
+  * If the hosts explicitly state a company has a specific power, create a relationship between that company and that power
+  * If the hosts discuss a power but don't clearly attribute it to a company, connect that power to the main company with a description like "Discussed in relation to [Company]'s business model"
+  * Even if the hosts are just explaining the concept, still create the power entity and connect it to the main company with a description that accurately reflects the context
 
-CONTEXT UNDERSTANDING:
-- READ THE FULL CONTEXT around any mention of Hamilton Helmer's 7 Powers
-- Pay attention to the hosts' CONCLUSIONS about which powers apply to which companies
-- Distinguish between general discussion of the powers and specific attribution to companies
-- Look for phrases like "they have", "they built", "they leverage", "their power is", etc.
-- Be conservative - only create power relationships when there is clear evidence
+NETWORK COMPLETENESS:
+- Ensure that EVERY entity is connected to at least one other entity
+- Ensure that there is a path from EVERY entity to at least one of the main companies (directly or indirectly)
+- Create logical connections between related entities even if not explicitly stated (e.g., a founder should be connected to their company)
 
 Format the output as a JSON object with two arrays:
 1. "entities" - Array of entity objects
@@ -414,26 +422,33 @@ Example response format:
     },
     {
       "source": "Tech Pioneers",
-      "target": "Bill Gates",
-      "description": "Bill Gates is considered a tech pioneer, which is a key theme of this episode"
+      "target": "Microsoft",
+      "description": "Microsoft is considered a tech pioneer, which is a key theme of this episode"
     },
     {
       "source": "Microsoft",
       "target": "Network Economies",
-      "description": "Leveraged network economies as users became locked into the Windows ecosystem, as concluded by the hosts"
+      "description": "Leveraged network economies as users became locked into the Windows ecosystem"
+    },
+    {
+      "source": "Windows",
+      "target": "Network Economies",
+      "description": "Windows demonstrated network effects as more developers created software for the platform"
     }
   ]
 }
 
 IMPORTANT GUIDELINES:
+- First identify the main company or companies that are the focus of the episode
 - Analyze the transcript through a strategic management lens, identifying key business strategies, competitive advantages, and market dynamics
 - Only include entities that are significant to the episode's content
-- Only create relationships between entities that are actually related in context
+- Create relationships that form a connected network - every entity should be connected to at least one other entity
+- Ensure there is a path from every entity to at least one main company
 - Products like "iPhone", "Windows", or "MyChart" should be categorized as "Topic"
 - Industries like "Healthcare", "Semiconductors", or "Finance" should be categorized as "Topic"
 - Technologies like "AI", "Blockchain", or "Cloud Computing" should be categorized as "Topic"
 - ALWAYS include industry topics for companies and an overarching theme topic for the episode
-- BE CAREFUL with Hamilton Helmer's 7 Powers - only create relationships when the hosts clearly conclude that a company possesses a specific power, not when they're just explaining the concept`,
+- ALWAYS create entities for any of Hamilton Helmer's 7 Powers mentioned and connect them to relevant companies`,
         },
         {
           role: "user",
