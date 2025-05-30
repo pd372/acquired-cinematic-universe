@@ -1,0 +1,465 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Loader2, RefreshCw, Play, Trash, Key } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+
+interface StagingStats {
+  pendingEntities: number
+  pendingRelationships: number
+  processedEntities: number
+  processedRelationships: number
+}
+
+interface CacheStats {
+  keys: number
+  hits: number
+  misses: number
+  ksize: number
+  vsize: number
+}
+
+interface ResolutionResult {
+  entitiesProcessed: number
+  entitiesCreated: number
+  entitiesMerged: number
+  relationshipsProcessed: number
+  relationshipsCreated: number
+  relationshipsSkipped: number
+  errors: number
+  timeTaken: number
+}
+
+export default function ResolutionDashboard() {
+  const [stats, setStats] = useState<StagingStats | null>(null)
+  const [cacheStats, setCacheStats] = useState<CacheStats | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isRunning, setIsRunning] = useState(false)
+  const [result, setResult] = useState<ResolutionResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // API Key dialog state
+  const [showApiKeyDialog, setShowApiKeyDialog] = useState(false)
+  const [apiKey, setApiKey] = useState("")
+  const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null)
+
+  // Fetch stats on load and periodically (no auth needed for stats)
+  useEffect(() => {
+    fetchStats()
+    const interval = setInterval(fetchStats, 30000) // Refresh every 30 seconds
+    return () => clearInterval(interval)
+  }, [])
+
+  async function fetchStats() {
+    try {
+      setIsLoading(true)
+      // Try to fetch stats without auth first (public endpoint)
+      const response = await fetch("/api/staging-stats")
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch stats: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setStats(data.stats)
+      setCacheStats(data.cacheStats)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch stats")
+      console.error("Error fetching stats:", err)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  function promptForApiKey(action: () => Promise<void>) {
+    setPendingAction(() => action)
+    setShowApiKeyDialog(true)
+    setApiKey("")
+  }
+
+  async function executeWithApiKey() {
+    if (!apiKey.trim()) {
+      setError("Please enter an API key")
+      return
+    }
+
+    if (!pendingAction) return
+
+    try {
+      setShowApiKeyDialog(false)
+      await pendingAction()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Operation failed")
+    } finally {
+      setPendingAction(null)
+      setApiKey("")
+    }
+  }
+
+  async function runResolution(params: {
+    entityBatchSize?: number
+    relationshipBatchSize?: number
+    maxBatches?: number
+    clearOlderThan?: number
+    clearCache?: boolean
+  }) {
+    try {
+      setIsRunning(true)
+      setError(null)
+
+      const response = await fetch("/api/resolve-entities", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(params),
+      })
+
+      if (response.status === 401) {
+        throw new Error("Invalid API key")
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to run resolution: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setResult(data.result)
+      setStats(data.stats)
+      setCacheStats(data.cacheStats)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to run resolution")
+      console.error("Error running resolution:", err)
+    } finally {
+      setIsRunning(false)
+    }
+  }
+
+  return (
+    <>
+      <Card className="w-full max-w-4xl bg-gray-900 border-gray-800 text-white">
+        <CardHeader>
+          <CardTitle className="text-[#00E5C7] flex items-center justify-between">
+            Resolution Dashboard
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={fetchStats}
+              disabled={isLoading}
+              className="h-8 w-8 rounded-full"
+            >
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            </Button>
+          </CardTitle>
+          <CardDescription>Monitor and manage the entity resolution process</CardDescription>
+        </CardHeader>
+
+        <CardContent>
+          <Tabs defaultValue="stats">
+            <TabsList className="bg-gray-800">
+              <TabsTrigger value="stats">Statistics</TabsTrigger>
+              <TabsTrigger value="actions">Actions</TabsTrigger>
+              <TabsTrigger value="results">Results</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="stats" className="space-y-4 mt-4">
+              {error && <div className="bg-red-900/30 border border-red-700 p-3 rounded-md text-red-300">{error}</div>}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gray-800 p-4 rounded-md">
+                  <h3 className="text-sm font-medium text-gray-400 mb-2">Staging Area</h3>
+                  {stats ? (
+                    <dl className="space-y-2">
+                      <div className="flex justify-between">
+                        <dt>Pending Entities:</dt>
+                        <dd className="font-mono">{stats.pendingEntities}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt>Pending Relationships:</dt>
+                        <dd className="font-mono">{stats.pendingRelationships}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt>Processed Entities:</dt>
+                        <dd className="font-mono">{stats.processedEntities}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt>Processed Relationships:</dt>
+                        <dd className="font-mono">{stats.processedRelationships}</dd>
+                      </div>
+                    </dl>
+                  ) : (
+                    <div className="text-gray-500">Loading stats...</div>
+                  )}
+                </div>
+
+                <div className="bg-gray-800 p-4 rounded-md">
+                  <h3 className="text-sm font-medium text-gray-400 mb-2">Entity Cache</h3>
+                  {cacheStats ? (
+                    <dl className="space-y-2">
+                      <div className="flex justify-between">
+                        <dt>Cached Entities:</dt>
+                        <dd className="font-mono">{cacheStats.keys}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt>Cache Hits:</dt>
+                        <dd className="font-mono">{cacheStats.hits}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt>Cache Misses:</dt>
+                        <dd className="font-mono">{cacheStats.misses}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt>Hit Ratio:</dt>
+                        <dd className="font-mono">
+                          {cacheStats.hits + cacheStats.misses > 0
+                            ? `${((cacheStats.hits / (cacheStats.hits + cacheStats.misses)) * 100).toFixed(1)}%`
+                            : "N/A"}
+                        </dd>
+                      </div>
+                    </dl>
+                  ) : (
+                    <div className="text-gray-500">Loading cache stats...</div>
+                  )}
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="actions" className="space-y-4 mt-4">
+              <div className="bg-gray-800 p-4 rounded-md">
+                <h3 className="text-sm font-medium text-gray-400 mb-4">Run Resolution</h3>
+
+                <div className="space-y-4">
+                  <Button
+                    onClick={() =>
+                      promptForApiKey(() =>
+                        runResolution({ entityBatchSize: 100, relationshipBatchSize: 100, maxBatches: 5 }),
+                      )
+                    }
+                    disabled={isRunning}
+                    className="bg-[#00E5C7] text-black hover:bg-[#00C7AD] w-full"
+                  >
+                    {isRunning ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="mr-2 h-4 w-4" />
+                        Run Standard Resolution (5 batches)
+                      </>
+                    )}
+                  </Button>
+
+                  <Button
+                    onClick={() =>
+                      promptForApiKey(() =>
+                        runResolution({ entityBatchSize: 100, relationshipBatchSize: 100, maxBatches: 20 }),
+                      )
+                    }
+                    disabled={isRunning}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    {isRunning ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="mr-2 h-4 w-4" />
+                        Run Full Resolution (20 batches)
+                      </>
+                    )}
+                  </Button>
+
+                  <Button
+                    onClick={() =>
+                      promptForApiKey(() =>
+                        runResolution({
+                          entityBatchSize: 50,
+                          relationshipBatchSize: 50,
+                          maxBatches: 2,
+                          clearCache: true,
+                        }),
+                      )
+                    }
+                    disabled={isRunning}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    {isRunning ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        Clear Cache & Run Test Resolution
+                      </>
+                    )}
+                  </Button>
+
+                  <Button
+                    onClick={() => promptForApiKey(() => runResolution({ clearOlderThan: 7 }))}
+                    disabled={isRunning}
+                    variant="destructive"
+                    className="w-full"
+                  >
+                    {isRunning ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Trash className="mr-2 h-4 w-4" />
+                        Clean Up Processed Items (Older than 7 days)
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="results" className="space-y-4 mt-4">
+              {result ? (
+                <div className="bg-gray-800 p-4 rounded-md">
+                  <h3 className="text-sm font-medium text-gray-400 mb-4">Last Resolution Results</h3>
+
+                  <dl className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <dt className="text-xs text-gray-500">Entities Processed</dt>
+                        <dd className="text-lg font-mono">{result.entitiesProcessed}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-gray-500">Entities Created</dt>
+                        <dd className="text-lg font-mono">{result.entitiesCreated}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-gray-500">Entities Merged</dt>
+                        <dd className="text-lg font-mono">{result.entitiesMerged}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-gray-500">Relationships Processed</dt>
+                        <dd className="text-lg font-mono">{result.relationshipsProcessed}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-gray-500">Relationships Created</dt>
+                        <dd className="text-lg font-mono">{result.relationshipsCreated}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-gray-500">Relationships Skipped</dt>
+                        <dd className="text-lg font-mono">{result.relationshipsSkipped}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-gray-500">Errors</dt>
+                        <dd className="text-lg font-mono">{result.errors}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-gray-500">Time Taken</dt>
+                        <dd className="text-lg font-mono">{(result.timeTaken / 1000).toFixed(2)}s</dd>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-gray-700">
+                      <dt className="text-xs text-gray-500 mb-1">Performance</dt>
+                      <dd className="grid grid-cols-2 gap-2">
+                        <div className="bg-gray-900 p-2 rounded">
+                          <span className="text-xs text-gray-500">Entities/sec</span>
+                          <div className="text-lg font-mono">
+                            {result.entitiesProcessed > 0
+                              ? (result.entitiesProcessed / (result.timeTaken / 1000)).toFixed(2)
+                              : "0"}
+                          </div>
+                        </div>
+                        <div className="bg-gray-900 p-2 rounded">
+                          <span className="text-xs text-gray-500">Relationships/sec</span>
+                          <div className="text-lg font-mono">
+                            {result.relationshipsProcessed > 0
+                              ? (result.relationshipsProcessed / (result.timeTaken / 1000)).toFixed(2)
+                              : "0"}
+                          </div>
+                        </div>
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              ) : (
+                <div className="bg-gray-800 p-4 rounded-md text-center text-gray-500">
+                  No resolution has been run yet. Go to the Actions tab to run a resolution.
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+
+        <CardFooter className="border-t border-gray-800 pt-4">
+          <div className="text-xs text-gray-500">Last updated: {new Date().toLocaleTimeString()}</div>
+        </CardFooter>
+      </Card>
+
+      {/* API Key Dialog */}
+      <Dialog open={showApiKeyDialog} onOpenChange={setShowApiKeyDialog}>
+        <DialogContent className="bg-gray-900 border-gray-800 text-white">
+          <DialogHeader>
+            <DialogTitle className="text-[#00E5C7] flex items-center">
+              <Key className="mr-2 h-5 w-5" />
+              API Key Required
+            </DialogTitle>
+            <DialogDescription>Enter your internal API key to execute this operation.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="dialogApiKey">Internal API Key</Label>
+              <Input
+                id="dialogApiKey"
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Enter your internal API key"
+                className="bg-gray-800 border-gray-700"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    executeWithApiKey()
+                  }
+                }}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowApiKeyDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={executeWithApiKey}
+              disabled={!apiKey.trim()}
+              className="bg-[#00E5C7] text-black hover:bg-[#00C7AD]"
+            >
+              Execute
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}

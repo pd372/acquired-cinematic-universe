@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio"
 import { OpenAI } from "openai"
-import { getEpisodeByUrl, createEpisode, findOrCreateEntity, createEntityMention, createOrUpdateConnection } from "./db"
+import { getEpisodeByUrl, createEpisode } from "./db"
+import { storeRawEntities, storeRawRelationships, type RawEntity, type RawRelationship } from "./staging-store"
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -45,9 +46,13 @@ export async function fetchEpisodesList(): Promise<{ title: string; url: string 
 }
 
 // Function to fetch and process a single episode
-export async function processEpisode(
-  episodeUrl: string,
-): Promise<{ success: boolean; message: string; episodeId?: string; entities?: any[]; relationships?: any[] }> {
+export async function processEpisode(episodeUrl: string): Promise<{
+  success: boolean
+  message: string
+  episodeId?: string
+  rawEntities?: number
+  rawRelationships?: number
+}> {
   console.log(`Processing episode: ${episodeUrl}`)
 
   try {
@@ -163,45 +168,51 @@ export async function processEpisode(
     const episode = await createEpisode(title || `Episode from ${episodeUrl}`, episodeUrl, publishedAt)
     console.log(`Episode created with ID: ${episode.id}`)
 
-    // Extract entities and relationships from transcript
-    console.log("Extracting entities and relationships from processed transcript...")
-    const { entities, relationships } = await extractEntitiesAndRelationships(processedTranscript, title || "")
-    console.log(`Extracted ${entities.length} entities and ${relationships.length} relationships from transcript`)
+    // Extract raw entities and relationships from transcript
+    console.log("Extracting raw entities and relationships from processed transcript...")
+    const { entities, relationships } = await extractEntitiesAndRelationships(
+      processedTranscript,
+      title || "Untitled Episode",
+    )
+    console.log(
+      `Extracted ${entities.length} raw entities and ${relationships.length} raw relationships from transcript`,
+    )
 
-    // Log the first few entities and relationships for debugging
-    if (entities.length > 0) {
-      console.log("Sample entities:", entities.slice(0, 3))
-    } else {
-      console.warn("No entities were extracted from the transcript!")
-    }
+    // Store raw entities and relationships in staging area
+    const now = new Date()
 
-    if (relationships.length > 0) {
-      console.log("Sample relationships:", relationships.slice(0, 3))
-    } else {
-      console.warn("No relationships were identified in the transcript!")
-    }
+    const rawEntities: RawEntity[] = entities.map((entity) => ({
+      name: entity.name,
+      type: entity.type,
+      description: entity.description,
+      episodeId: episode.id,
+      episodeTitle: title || "Untitled Episode",
+      extractedAt: now,
+    }))
 
-    // Process entities and create connections
-    if (entities.length > 0) {
-      console.log(`Processing ${entities.length} entities...`)
-      const entityMap = await processEntities(entities, episode.id)
+    const rawRelationships: RawRelationship[] = relationships.map((rel) => ({
+      sourceName: rel.source,
+      targetName: rel.target,
+      description: rel.description,
+      episodeId: episode.id,
+      episodeTitle: title || "Untitled Episode",
+      extractedAt: now,
+    }))
 
-      if (relationships.length > 0) {
-        console.log(`Processing ${relationships.length} relationships...`)
-        await processRelationships(relationships, entityMap, episode.id)
-      } else {
-        console.warn("Skipping relationship processing as no relationships were identified")
-      }
-    } else {
-      console.warn("Skipping entity processing as no entities were extracted")
-    }
+    // Store in staging area
+    await storeRawEntities(rawEntities)
+    await storeRawRelationships(rawRelationships)
+
+    console.log(
+      `Stored ${rawEntities.length} raw entities and ${rawRelationships.length} raw relationships in staging area`,
+    )
 
     return {
       success: true,
       message: `Successfully processed episode: ${episode.title}`,
       episodeId: episode.id,
-      entities: entities,
-      relationships: relationships,
+      rawEntities: rawEntities.length,
+      rawRelationships: rawRelationships.length,
     }
   } catch (error) {
     console.error(`Error processing episode ${episodeUrl}:`, error)
@@ -492,85 +503,6 @@ IMPORTANT GUIDELINES:
     }
   } catch (error) {
     console.error("Error extracting entities and relationships:", error)
-    throw error
-  }
-}
-
-// Function to process entities and create mentions
-async function processEntities(entities: any[], episodeId: string): Promise<Map<string, string>> {
-  try {
-    // Map to store entity name -> entity ID mapping
-    const entityMap = new Map<string, string>()
-
-    // Store entities and create mentions
-    for (const entityData of entities) {
-      console.log(`Processing entity: ${entityData.name} (${entityData.type})`)
-
-      if (!entityData.name || !entityData.type) {
-        console.warn("Skipping entity with missing name or type:", entityData)
-        continue
-      }
-
-      try {
-        const entity = await findOrCreateEntity(entityData.name, entityData.type, entityData.description)
-        console.log(`Entity stored with ID: ${entity.id}`)
-
-        await createEntityMention(episodeId, entity.id)
-        console.log(`Created mention for entity ${entity.id} in episode ${episodeId}`)
-
-        // Store the entity name -> ID mapping
-        entityMap.set(entityData.name, entity.id)
-      } catch (entityError) {
-        console.error(`Error processing individual entity ${entityData.name}:`, entityError)
-        // Continue with other entities even if one fails
-      }
-    }
-
-    console.log(`Successfully processed ${entityMap.size} entities`)
-    return entityMap
-  } catch (error) {
-    console.error("Error in processEntities:", error)
-    throw error
-  }
-}
-
-// Function to process relationships and create connections
-async function processRelationships(
-  relationships: any[],
-  entityMap: Map<string, string>,
-  episodeId: string,
-): Promise<void> {
-  try {
-    let connectionCount = 0
-
-    for (const relationship of relationships) {
-      const { source, target, description } = relationship
-
-      if (!source || !target || !description) {
-        console.warn("Skipping relationship with missing data:", relationship)
-        continue
-      }
-
-      const sourceId = entityMap.get(source)
-      const targetId = entityMap.get(target)
-
-      if (!sourceId || !targetId) {
-        console.warn(`Skipping relationship: Could not find IDs for "${source}" or "${target}"`)
-        continue
-      }
-
-      try {
-        await createOrUpdateConnection(episodeId, sourceId, targetId, description)
-        connectionCount++
-        console.log(`Created connection: "${source}" -> "${target}" (${description})`)
-      } catch (connectionError) {
-        console.error(`Error creating connection between "${source}" and "${target}":`, connectionError)
-      }
-    }
-
-    console.log(`Created ${connectionCount} connections based on identified relationships`)
-  } catch (error) {
-    console.error("Error in processRelationships:", error)
     throw error
   }
 }
