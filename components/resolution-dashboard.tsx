@@ -88,6 +88,7 @@ export default function ResolutionDashboard() {
     setPendingAction(() => action)
     setShowApiKeyDialog(true)
     setApiKey("")
+    setError(null) // Clear any previous errors
   }
 
   async function executeWithApiKey() {
@@ -103,6 +104,7 @@ export default function ResolutionDashboard() {
       await pendingAction()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Operation failed")
+      console.error("Operation error:", err)
     } finally {
       setPendingAction(null)
       setApiKey("")
@@ -120,6 +122,8 @@ export default function ResolutionDashboard() {
       setIsRunning(true)
       setError(null)
 
+      console.log("Making resolution request with API key length:", apiKey.length)
+
       const response = await fetch("/api/resolve-entities", {
         method: "POST",
         headers: {
@@ -129,20 +133,27 @@ export default function ResolutionDashboard() {
         body: JSON.stringify(params),
       })
 
+      console.log("Resolution response status:", response.status)
+
       if (response.status === 401) {
-        throw new Error("Invalid API key")
+        const errorData = await response.json().catch(() => ({ error: "Unauthorized" }))
+        throw new Error(`Authentication failed: ${errorData.error || "Invalid API key"}`)
       }
 
       if (!response.ok) {
-        throw new Error(`Failed to run resolution: ${response.status}`)
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
+        throw new Error(`Failed to run resolution (${response.status}): ${errorData.error || response.statusText}`)
       }
 
       const data = await response.json()
+      console.log("Resolution response data:", data)
+
       setResult(data.result)
       setStats(data.stats)
       setCacheStats(data.cacheStats)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to run resolution")
+      const errorMessage = err instanceof Error ? err.message : "Failed to run resolution"
+      setError(errorMessage)
       console.error("Error running resolution:", err)
     } finally {
       setIsRunning(false)
@@ -177,7 +188,12 @@ export default function ResolutionDashboard() {
             </TabsList>
 
             <TabsContent value="stats" className="space-y-4 mt-4">
-              {error && <div className="bg-red-900/30 border border-red-700 p-3 rounded-md text-red-300">{error}</div>}
+              {error && (
+                <div className="bg-red-900/30 border border-red-700 p-3 rounded-md text-red-300">
+                  <div className="font-medium">Error:</div>
+                  <div className="text-sm mt-1">{error}</div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-gray-800 p-4 rounded-md">
@@ -443,6 +459,7 @@ export default function ResolutionDashboard() {
                   }
                 }}
               />
+              <div className="text-xs text-gray-500">This should match your INTERNAL_API_KEY environment variable</div>
             </div>
           </div>
 

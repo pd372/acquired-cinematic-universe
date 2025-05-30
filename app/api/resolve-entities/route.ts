@@ -6,20 +6,46 @@ export async function POST(request: NextRequest) {
   try {
     // Check for API key authentication
     const authHeader = request.headers.get("authorization")
-    if (!process.env.INTERNAL_API_KEY || authHeader !== `Bearer ${process.env.INTERNAL_API_KEY}`) {
+    const expectedKey = process.env.INTERNAL_API_KEY
+
+    console.log("POST /api/resolve-entities - Auth check:")
+    console.log("- Auth header present:", !!authHeader)
+    console.log("- Expected key present:", !!expectedKey)
+    console.log("- Auth header format:", authHeader ? authHeader.substring(0, 20) + "..." : "none")
+
+    if (!expectedKey) {
+      console.error("INTERNAL_API_KEY environment variable not set")
+      return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
+    }
+
+    if (!authHeader || authHeader !== `Bearer ${expectedKey}`) {
+      console.log("Authentication failed - header mismatch")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    console.log("Authentication successful")
 
     // Get parameters from request
     const { entityBatchSize, relationshipBatchSize, maxBatches, clearOlderThan, clearCache } = await request.json()
 
+    console.log("Resolution parameters:", {
+      entityBatchSize,
+      relationshipBatchSize,
+      maxBatches,
+      clearOlderThan,
+      clearCache,
+    })
+
     // Clear entity cache if requested
     if (clearCache) {
       clearEntityCache()
+      console.log("Entity cache cleared")
     }
 
     // Run the resolution process
+    console.log("Starting resolution process...")
     const result = await runResolution(entityBatchSize || 100, relationshipBatchSize || 100, maxBatches || 10)
+    console.log("Resolution completed:", result)
 
     // Clear old processed items if requested
     let cleanupResult = null
@@ -28,6 +54,7 @@ export async function POST(request: NextRequest) {
       olderThan.setDate(olderThan.getDate() - (clearOlderThan || 7)) // Default to 7 days
 
       cleanupResult = await clearProcessedItems(olderThan)
+      console.log("Cleanup completed:", cleanupResult)
     }
 
     // Get current staging stats
@@ -65,7 +92,19 @@ export async function GET(request: NextRequest) {
   try {
     // Check for API key authentication
     const authHeader = request.headers.get("authorization")
-    if (!process.env.INTERNAL_API_KEY || authHeader !== `Bearer ${process.env.INTERNAL_API_KEY}`) {
+    const expectedKey = process.env.INTERNAL_API_KEY
+
+    console.log("GET /api/resolve-entities - Auth check:")
+    console.log("- Auth header present:", !!authHeader)
+    console.log("- Expected key present:", !!expectedKey)
+
+    if (!expectedKey) {
+      console.error("INTERNAL_API_KEY environment variable not set")
+      return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
+    }
+
+    if (!authHeader || authHeader !== `Bearer ${expectedKey}`) {
+      console.log("Authentication failed - header mismatch")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
