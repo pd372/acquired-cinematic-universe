@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Loader2, RefreshCw, Play, Trash, Key } from "lucide-react"
+import { Loader2, RefreshCw, Play, Trash, Key, Bug } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -49,6 +49,7 @@ export default function ResolutionDashboard() {
   const [isRunning, setIsRunning] = useState(false)
   const [result, setResult] = useState<ResolutionResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [debugInfo, setDebugInfo] = useState<any>(null)
 
   // API Key dialog state
   const [showApiKeyDialog, setShowApiKeyDialog] = useState(false)
@@ -81,6 +82,38 @@ export default function ResolutionDashboard() {
       console.error("Error fetching stats:", err)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  async function debugAuth() {
+    if (!apiKey.trim()) {
+      setError("Please enter an API key to debug")
+      return
+    }
+
+    try {
+      setError(null)
+      console.log("Debugging auth with API key length:", apiKey.length)
+
+      const response = await fetch("/api/debug-auth", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ testKey: apiKey }),
+      })
+
+      const data = await response.json()
+      setDebugInfo(data.debug)
+      console.log("Debug response:", data)
+
+      if (!data.debug?.match) {
+        setError("API key mismatch detected. Check the debug info below.")
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Debug failed")
+      console.error("Debug error:", err)
     }
   }
 
@@ -185,6 +218,7 @@ export default function ResolutionDashboard() {
               <TabsTrigger value="stats">Statistics</TabsTrigger>
               <TabsTrigger value="actions">Actions</TabsTrigger>
               <TabsTrigger value="results">Results</TabsTrigger>
+              <TabsTrigger value="debug">Debug</TabsTrigger>
             </TabsList>
 
             <TabsContent value="stats" className="space-y-4 mt-4">
@@ -423,6 +457,81 @@ export default function ResolutionDashboard() {
                   No resolution has been run yet. Go to the Actions tab to run a resolution.
                 </div>
               )}
+            </TabsContent>
+
+            <TabsContent value="debug" className="space-y-4 mt-4">
+              <div className="bg-gray-800 p-4 rounded-md">
+                <h3 className="text-sm font-medium text-gray-400 mb-4">Authentication Debug</h3>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="debugApiKey">Test API Key</Label>
+                    <Input
+                      id="debugApiKey"
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder="Enter your internal API key to test"
+                      className="bg-gray-700 border-gray-600"
+                    />
+                  </div>
+
+                  <Button onClick={debugAuth} disabled={!apiKey.trim()} className="w-full" variant="outline">
+                    <Bug className="mr-2 h-4 w-4" />
+                    Debug Authentication
+                  </Button>
+
+                  {debugInfo && (
+                    <div className="bg-gray-900 p-4 rounded-md">
+                      <h4 className="text-sm font-medium text-gray-400 mb-2">Debug Results</h4>
+                      <dl className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <dt>Environment Key Exists:</dt>
+                          <dd className={debugInfo.envKeyExists ? "text-green-400" : "text-red-400"}>
+                            {debugInfo.envKeyExists ? "Yes" : "No"}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt>Environment Key Length:</dt>
+                          <dd className="font-mono">{debugInfo.envKeyLength}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt>Environment Key Preview:</dt>
+                          <dd className="font-mono">{debugInfo.envKeyPreview}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt>Your Key Length:</dt>
+                          <dd className="font-mono">{debugInfo.testKeyLength}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt>Auth Header Length:</dt>
+                          <dd className="font-mono">{debugInfo.authHeaderLength}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt>Keys Match:</dt>
+                          <dd className={debugInfo.match ? "text-green-400" : "text-red-400"}>
+                            {debugInfo.match ? "Yes" : "No"}
+                          </dd>
+                        </div>
+                      </dl>
+
+                      {!debugInfo.match && (
+                        <div className="mt-4 p-3 bg-red-900/30 border border-red-700 rounded text-red-300 text-sm">
+                          <div className="font-medium">Key Mismatch Detected</div>
+                          <div className="mt-1">
+                            The API key you entered doesn't match the INTERNAL_API_KEY environment variable. Check for:
+                            <ul className="list-disc list-inside mt-1 ml-2">
+                              <li>Extra spaces or newlines</li>
+                              <li>Different key values</li>
+                              <li>Environment variable not set</li>
+                            </ul>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </TabsContent>
           </Tabs>
         </CardContent>
