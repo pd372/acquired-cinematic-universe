@@ -28,48 +28,37 @@ export async function storeRawEntities(entities: RawEntity[]): Promise<string[]>
   if (entities.length === 0) return []
 
   const ids: string[] = []
-  const batchSize = 50
 
-  // Process in batches to avoid hitting query size limits
-  for (let i = 0; i < entities.length; i += batchSize) {
-    const batch = entities.slice(i, i + batchSize)
-
-    // Create values for batch insert
-    const values = batch.map((entity) => {
+  // Process entities one by one to avoid complex batch operations
+  for (const entity of entities) {
+    try {
       const id = uuidv4()
       ids.push(id)
 
-      return {
-        id,
-        name: entity.name,
-        type: entity.type,
-        description: entity.description || null,
-        episodeId: entity.episodeId,
-        episodeTitle: entity.episodeTitle,
-        extractedAt: entity.extractedAt,
-      }
-    })
-
-    // Insert batch
-    await sql`
-      INSERT INTO "StagedEntity" (
-        id, 
-        name, 
-        type, 
-        description, 
-        "episodeId", 
-        "episodeTitle", 
-        "extractedAt"
-      )
-      SELECT 
-        ${sql(values.map((v) => v.id))},
-        ${sql(values.map((v) => v.name))},
-        ${sql(values.map((v) => v.type))},
-        ${sql(values.map((v) => v.description))},
-        ${sql(values.map((v) => v.episodeId))},
-        ${sql(values.map((v) => v.episodeTitle))},
-        ${sql(values.map((v) => v.extractedAt))}
-    `
+      await sql`
+        INSERT INTO "StagedEntity" (
+          id, 
+          name, 
+          type, 
+          description, 
+          "episodeId", 
+          "episodeTitle", 
+          "extractedAt"
+        )
+        VALUES (
+          ${id},
+          ${entity.name},
+          ${entity.type},
+          ${entity.description || null},
+          ${entity.episodeId},
+          ${entity.episodeTitle},
+          ${entity.extractedAt.toISOString()}
+        )
+      `
+    } catch (error) {
+      console.error(`Error storing entity ${entity.name}:`, error)
+      // Continue with other entities even if one fails
+    }
   }
 
   return ids
@@ -80,48 +69,37 @@ export async function storeRawRelationships(relationships: RawRelationship[]): P
   if (relationships.length === 0) return []
 
   const ids: string[] = []
-  const batchSize = 50
 
-  // Process in batches to avoid hitting query size limits
-  for (let i = 0; i < relationships.length; i += batchSize) {
-    const batch = relationships.slice(i, i + batchSize)
-
-    // Create values for batch insert
-    const values = batch.map((rel) => {
+  // Process relationships one by one to avoid complex batch operations
+  for (const rel of relationships) {
+    try {
       const id = uuidv4()
       ids.push(id)
 
-      return {
-        id,
-        sourceName: rel.sourceName,
-        targetName: rel.targetName,
-        description: rel.description,
-        episodeId: rel.episodeId,
-        episodeTitle: rel.episodeTitle,
-        extractedAt: rel.extractedAt,
-      }
-    })
-
-    // Insert batch
-    await sql`
-      INSERT INTO "StagedRelationship" (
-        id, 
-        "sourceName", 
-        "targetName", 
-        description, 
-        "episodeId", 
-        "episodeTitle", 
-        "extractedAt"
-      )
-      SELECT 
-        ${sql(values.map((v) => v.id))},
-        ${sql(values.map((v) => v.sourceName))},
-        ${sql(values.map((v) => v.targetName))},
-        ${sql(values.map((v) => v.description))},
-        ${sql(values.map((v) => v.episodeId))},
-        ${sql(values.map((v) => v.episodeTitle))},
-        ${sql(values.map((v) => v.extractedAt))}
-    `
+      await sql`
+        INSERT INTO "StagedRelationship" (
+          id, 
+          "sourceName", 
+          "targetName", 
+          description, 
+          "episodeId", 
+          "episodeTitle", 
+          "extractedAt"
+        )
+        VALUES (
+          ${id},
+          ${rel.sourceName},
+          ${rel.targetName},
+          ${rel.description},
+          ${rel.episodeId},
+          ${rel.episodeTitle},
+          ${rel.extractedAt.toISOString()}
+        )
+      `
+    } catch (error) {
+      console.error(`Error storing relationship ${rel.sourceName} -> ${rel.targetName}:`, error)
+      // Continue with other relationships even if one fails
+    }
   }
 
   return ids
@@ -169,22 +147,36 @@ export async function getStagedRelationships(limit = 1000, processed = false): P
 export async function markEntitiesAsProcessed(ids: string[]): Promise<void> {
   if (ids.length === 0) return
 
-  await sql`
-    UPDATE "StagedEntity"
-    SET processed = true
-    WHERE id IN ${sql(ids)}
-  `
+  // Process in smaller batches to avoid query size limits
+  const batchSize = 50
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize)
+
+    // Use ANY operator for array matching
+    await sql`
+      UPDATE "StagedEntity"
+      SET processed = true
+      WHERE id = ANY(${batch})
+    `
+  }
 }
 
 // Function to mark staged relationships as processed
 export async function markRelationshipsAsProcessed(ids: string[]): Promise<void> {
   if (ids.length === 0) return
 
-  await sql`
-    UPDATE "StagedRelationship"
-    SET processed = true
-    WHERE id IN ${sql(ids)}
-  `
+  // Process in smaller batches to avoid query size limits
+  const batchSize = 50
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize)
+
+    // Use ANY operator for array matching
+    await sql`
+      UPDATE "StagedRelationship"
+      SET processed = true
+      WHERE id = ANY(${batch})
+    `
+  }
 }
 
 // Function to get staging statistics
@@ -225,13 +217,13 @@ export async function clearProcessedItems(olderThan: Date): Promise<{
 }> {
   const entitiesResult = await sql`
     DELETE FROM "StagedEntity"
-    WHERE processed = true AND "extractedAt" < ${olderThan}
+    WHERE processed = true AND "extractedAt" < ${olderThan.toISOString()}
     RETURNING id
   `
 
   const relationshipsResult = await sql`
     DELETE FROM "StagedRelationship"
-    WHERE processed = true AND "extractedAt" < ${olderThan}
+    WHERE processed = true AND "extractedAt" < ${olderThan.toISOString()}
     RETURNING id
   `
 

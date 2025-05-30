@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless"
+import { v4 as uuidv4 } from "uuid"
 import {
   getStagedEntities,
   getStagedRelationships,
@@ -21,26 +22,6 @@ function normalizeEntityName(name: string): string {
     .replace(/[^\w\s]/g, "") // Remove special characters
     .replace(/\s+/g, " ") // Normalize whitespace
     .trim()
-}
-
-// Function to check if two entity names are similar enough to be considered the same
-// This is now only used as a fallback when database matching fails
-function areEntitiesSimilar(name1: string, name2: string): boolean {
-  const normalized1 = normalizeEntityName(name1)
-  const normalized2 = normalizeEntityName(name2)
-
-  // Exact match after normalization
-  if (normalized1 === normalized2) return true
-
-  // Check for contained names (e.g., "Apple" and "Apple Inc.")
-  if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
-    // Only consider it a match if the shorter name is at least 5 characters
-    // This avoids matching short abbreviations like "AI" with longer terms
-    const minLength = Math.min(normalized1.length, normalized2.length)
-    if (minLength >= 5) return true
-  }
-
-  return false
 }
 
 // Function to find matching entity using database-side text search
@@ -94,7 +75,7 @@ async function findMatchingEntity(entityName: string, entityType: string): Promi
     WHERE type = ${entityType}
     AND (
       normalized_name LIKE ${`%${normalizedName}%`}
-      OR ${normalizedName} LIKE ${`%` + sql("normalized_name") + `%`}
+      OR ${normalizedName} LIKE CONCAT('%', normalized_name, '%')
     )
     LIMIT 1
   `
@@ -156,12 +137,13 @@ export async function resolveEntities(batchSize = 100): Promise<{
       } else {
         // Create a new entity with normalized name
         const normalizedName = normalizeEntityName(stagedEntity.name)
-        const entity = await sql`
+        const newId = uuidv4()
+
+        await sql`
           INSERT INTO "Entity" (id, name, type, description, normalized_name)
-          VALUES (${stagedEntity.id || undefined}, ${stagedEntity.name}, ${stagedEntity.type}, ${stagedEntity.description}, ${normalizedName})
-          RETURNING id
+          VALUES (${newId}, ${stagedEntity.name}, ${stagedEntity.type}, ${stagedEntity.description}, ${normalizedName})
         `
-        entityId = entity[0].id
+        entityId = newId
 
         // Add to cache
         entityCache.set(`${stagedEntity.type}:${stagedEntity.name}`, {
@@ -178,8 +160,20 @@ export async function resolveEntities(batchSize = 100): Promise<{
       // Create entity mention
       await createEntityMention(stagedEntity.episodeId, entityId)
 
-      // Mark as processed
-      processedIds.push(stagedEntity.id)
+      // Mark as processed (we'll need the staged entity ID)
+      // For now, let's get it from the database
+      const stagedEntityRecord = await sql`
+        SELECT id FROM "StagedEntity" 
+        WHERE name = ${stagedEntity.name} 
+        AND type = ${stagedEntity.type} 
+        AND "episodeId" = ${stagedEntity.episodeId}
+        AND processed = false
+        LIMIT 1
+      `
+
+      if (stagedEntityRecord.length > 0) {
+        processedIds.push(stagedEntityRecord[0].id)
+      }
     } catch (error) {
       console.error(`Error resolving entity ${stagedEntity.name}:`, error)
       errors++
@@ -218,17 +212,9 @@ export async function resolveRelationships(batchSize = 100): Promise<{
   let errors = 0
   const processedIds: string[] = []
 
-  // Create a map to track entity lookups for this batch
-  const entityLookupCache = new Map<string, string | null>()
-
   // Helper function to find entity ID by name
   async function findEntityIdByName(name: string): Promise<string | null> {
-    // Check batch-specific cache first
-    if (entityLookupCache.has(name)) {
-      return entityLookupCache.get(name) || null
-    }
-
-    // Try to find entity using optimized search across all types
+    // Normalize the name for searching
     const normalizedName = normalizeEntityName(name)
 
     // Try exact match on normalized name first
@@ -240,9 +226,7 @@ export async function resolveRelationships(batchSize = 100): Promise<{
     `
 
     if (entities.length > 0) {
-      const id = entities[0].id
-      entityLookupCache.set(name, id)
-      return id
+      return entities[0].id
     }
 
     // Try fuzzy match
@@ -256,9 +240,7 @@ export async function resolveRelationships(batchSize = 100): Promise<{
     `
 
     if (fuzzyEntities.length > 0) {
-      const id = fuzzyEntities[0].id
-      entityLookupCache.set(name, id)
-      return id
+      return fuzzyEntities[0].id
     }
 
     // Try containment match
@@ -266,18 +248,14 @@ export async function resolveRelationships(batchSize = 100): Promise<{
       SELECT id, name, type
       FROM "Entity"
       WHERE normalized_name LIKE ${`%${normalizedName}%`}
-         OR ${normalizedName} LIKE ${`%` + sql("normalized_name") + `%`}
+         OR ${normalizedName} LIKE CONCAT('%', normalized_name, '%')
       LIMIT 1
     `
 
     if (containmentEntities.length > 0) {
-      const id = containmentEntities[0].id
-      entityLookupCache.set(name, id)
-      return id
+      return containmentEntities[0].id
     }
 
-    // No match found
-    entityLookupCache.set(name, null)
     return null
   }
 
@@ -297,8 +275,19 @@ export async function resolveRelationships(batchSize = 100): Promise<{
         skipped++
       }
 
-      // Mark as processed
-      processedIds.push(stagedRel.id)
+      // Get the staged relationship ID for marking as processed
+      const stagedRelRecord = await sql`
+        SELECT id FROM "StagedRelationship" 
+        WHERE "sourceName" = ${stagedRel.sourceName} 
+        AND "targetName" = ${stagedRel.targetName} 
+        AND "episodeId" = ${stagedRel.episodeId}
+        AND processed = false
+        LIMIT 1
+      `
+
+      if (stagedRelRecord.length > 0) {
+        processedIds.push(stagedRelRecord[0].id)
+      }
     } catch (error) {
       console.error(`Error resolving relationship ${stagedRel.sourceName} -> ${stagedRel.targetName}:`, error)
       errors++
