@@ -389,6 +389,8 @@ NETWORK COMPLETENESS:
 - Ensure that there is a path from EVERY entity to at least one of the main companies (directly or indirectly)
 - Create logical connections between related entities even if not explicitly stated (e.g., a founder should be connected to their company)
 
+PART 3.5: Connecting the 7 powers to the company
+The 7 powers part of the podcast is a CRITICAL part so you must read through it extremely carefully! You must try to understand the hosts' assessment on the powers the company analyzed has. It might be mentioned in a subtle way so pay 1000x more attention to find out if any of the 7 powers can be associated with the company and create the needed association.
 
 PART 4: THE OUTPUT
 
