@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Loader2, RefreshCw, Play, Trash, Key, Bug } from "lucide-react"
+import { Loader2, RefreshCw, Play, Trash, Key, Bug, GitMerge } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -40,6 +40,7 @@ interface ResolutionResult {
   relationshipsSkipped: number
   errors: number
   timeTaken: number
+  mergeDetails?: Array<{ source: string; target: string; reason: string }>
 }
 
 export default function ResolutionDashboard() {
@@ -390,67 +391,91 @@ export default function ResolutionDashboard() {
 
             <TabsContent value="results" className="space-y-4 mt-4">
               {result ? (
-                <div className="bg-gray-800 p-4 rounded-md">
-                  <h3 className="text-sm font-medium text-gray-400 mb-4">Last Resolution Results</h3>
+                <div className="space-y-4">
+                  <div className="bg-gray-800 p-4 rounded-md">
+                    <h3 className="text-sm font-medium text-gray-400 mb-4">Last Resolution Results</h3>
 
-                  <dl className="space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <dt className="text-xs text-gray-500">Entities Processed</dt>
-                        <dd className="text-lg font-mono">{result.entitiesProcessed}</dd>
+                    <dl className="space-y-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <dt className="text-xs text-gray-500">Entities Processed</dt>
+                          <dd className="text-lg font-mono">{result.entitiesProcessed}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-gray-500">Entities Created</dt>
+                          <dd className="text-lg font-mono">{result.entitiesCreated}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-gray-500">Entities Merged</dt>
+                          <dd className="text-lg font-mono">{result.entitiesMerged}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-gray-500">Relationships Processed</dt>
+                          <dd className="text-lg font-mono">{result.relationshipsProcessed}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-gray-500">Relationships Created</dt>
+                          <dd className="text-lg font-mono">{result.relationshipsCreated}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-gray-500">Relationships Skipped</dt>
+                          <dd className="text-lg font-mono">{result.relationshipsSkipped}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-gray-500">Errors</dt>
+                          <dd className="text-lg font-mono">{result.errors}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-gray-500">Time Taken</dt>
+                          <dd className="text-lg font-mono">{(result.timeTaken / 1000).toFixed(2)}s</dd>
+                        </div>
                       </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Entities Created</dt>
-                        <dd className="text-lg font-mono">{result.entitiesCreated}</dd>
+
+                      <div className="pt-2 border-t border-gray-700">
+                        <dt className="text-xs text-gray-500 mb-1">Performance</dt>
+                        <dd className="grid grid-cols-2 gap-2">
+                          <div className="bg-gray-900 p-2 rounded">
+                            <span className="text-xs text-gray-500">Entities/sec</span>
+                            <div className="text-lg font-mono">
+                              {result.entitiesProcessed > 0
+                                ? (result.entitiesProcessed / (result.timeTaken / 1000)).toFixed(2)
+                                : "0"}
+                            </div>
+                          </div>
+                          <div className="bg-gray-900 p-2 rounded">
+                            <span className="text-xs text-gray-500">Relationships/sec</span>
+                            <div className="text-lg font-mono">
+                              {result.relationshipsProcessed > 0
+                                ? (result.relationshipsProcessed / (result.timeTaken / 1000)).toFixed(2)
+                                : "0"}
+                            </div>
+                          </div>
+                        </dd>
                       </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Entities Merged</dt>
-                        <dd className="text-lg font-mono">{result.entitiesMerged}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Relationships Processed</dt>
-                        <dd className="text-lg font-mono">{result.relationshipsProcessed}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Relationships Created</dt>
-                        <dd className="text-lg font-mono">{result.relationshipsCreated}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Relationships Skipped</dt>
-                        <dd className="text-lg font-mono">{result.relationshipsSkipped}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Errors</dt>
-                        <dd className="text-lg font-mono">{result.errors}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Time Taken</dt>
-                        <dd className="text-lg font-mono">{(result.timeTaken / 1000).toFixed(2)}s</dd>
+                    </dl>
+                  </div>
+
+                  {/* Merge Details */}
+                  {result.mergeDetails && result.mergeDetails.length > 0 && (
+                    <div className="bg-gray-800 p-4 rounded-md">
+                      <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center">
+                        <GitMerge className="mr-2 h-4 w-4" />
+                        Entity Merges ({result.mergeDetails.length})
+                      </h3>
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {result.mergeDetails.map((merge, index) => (
+                          <div key={index} className="bg-gray-900 p-3 rounded text-sm">
+                            <div className="flex items-center justify-between">
+                              <span className="text-yellow-400">"{merge.source}"</span>
+                              <span className="text-gray-500 mx-2">→</span>
+                              <span className="text-green-400">"{merge.target}"</span>
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">{merge.reason}</div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-
-                    <div className="pt-2 border-t border-gray-700">
-                      <dt className="text-xs text-gray-500 mb-1">Performance</dt>
-                      <dd className="grid grid-cols-2 gap-2">
-                        <div className="bg-gray-900 p-2 rounded">
-                          <span className="text-xs text-gray-500">Entities/sec</span>
-                          <div className="text-lg font-mono">
-                            {result.entitiesProcessed > 0
-                              ? (result.entitiesProcessed / (result.timeTaken / 1000)).toFixed(2)
-                              : "0"}
-                          </div>
-                        </div>
-                        <div className="bg-gray-900 p-2 rounded">
-                          <span className="text-xs text-gray-500">Relationships/sec</span>
-                          <div className="text-lg font-mono">
-                            {result.relationshipsProcessed > 0
-                              ? (result.relationshipsProcessed / (result.timeTaken / 1000)).toFixed(2)
-                              : "0"}
-                          </div>
-                        </div>
-                      </dd>
-                    </div>
-                  </dl>
+                  )}
                 </div>
               ) : (
                 <div className="bg-gray-800 p-4 rounded-md text-center text-gray-500">

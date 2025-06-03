@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { runResolution, getEntityCacheStats, clearEntityCache } from "@/lib/entity-resolver"
+import { resolveEntitiesHybrid, clearHybridCaches, getHybridCacheStats } from "@/lib/hybrid-entity-resolver"
 import { getStagingStats, clearProcessedItems } from "@/lib/staging-store"
 
 export async function POST(request: NextRequest) {
@@ -11,7 +12,6 @@ export async function POST(request: NextRequest) {
     console.log("POST /api/resolve-entities - Auth check:")
     console.log("- Auth header present:", !!authHeader)
     console.log("- Expected key present:", !!expectedKey)
-    console.log("- Auth header format:", authHeader ? authHeader.substring(0, 20) + "..." : "none")
 
     if (!expectedKey) {
       console.error("INTERNAL_API_KEY environment variable not set")
@@ -26,7 +26,8 @@ export async function POST(request: NextRequest) {
     console.log("Authentication successful")
 
     // Get parameters from request
-    const { entityBatchSize, relationshipBatchSize, maxBatches, clearOlderThan, clearCache } = await request.json()
+    const { entityBatchSize, relationshipBatchSize, maxBatches, clearOlderThan, clearCache, useHybrid, useLLM } =
+      await request.json()
 
     console.log("Resolution parameters:", {
       entityBatchSize,
@@ -34,25 +35,55 @@ export async function POST(request: NextRequest) {
       maxBatches,
       clearOlderThan,
       clearCache,
+      useHybrid,
+      useLLM,
     })
 
-    // Clear entity cache if requested
+    // Clear caches if requested
     if (clearCache) {
-      clearEntityCache()
-      console.log("Entity cache cleared")
+      if (useHybrid) {
+        clearHybridCaches()
+        console.log("Hybrid caches cleared")
+      } else {
+        clearEntityCache()
+        console.log("Entity cache cleared")
+      }
     }
 
-    // Run the resolution process
-    console.log("Starting resolution process...")
-    const result = await runResolution(entityBatchSize || 100, relationshipBatchSize || 100, maxBatches || 10)
+    let result: any
+
+    // Choose resolution strategy
+    if (useHybrid) {
+      console.log("Using hybrid resolution strategy")
+      // For hybrid, we'll do a simplified version focusing on entities
+      const entityResult = await resolveEntitiesHybrid(entityBatchSize || 100, useLLM !== false)
+
+      result = {
+        entitiesProcessed: entityResult.processed,
+        entitiesCreated: entityResult.created,
+        entitiesMerged: entityResult.merged,
+        relationshipsProcessed: 0,
+        relationshipsCreated: 0,
+        relationshipsSkipped: 0,
+        errors: entityResult.errors,
+        timeTaken: 0,
+        totalCost: entityResult.totalCost,
+        strategyStats: entityResult.strategyStats,
+        mergeDetails: entityResult.mergeDetails,
+        hybrid: true,
+      }
+    } else {
+      console.log("Using traditional rule-based resolution")
+      result = await runResolution(entityBatchSize || 100, relationshipBatchSize || 100, maxBatches || 10)
+    }
+
     console.log("Resolution completed:", result)
 
     // Clear old processed items if requested
     let cleanupResult = null
     if (clearOlderThan) {
       const olderThan = new Date()
-      olderThan.setDate(olderThan.getDate() - (clearOlderThan || 7)) // Default to 7 days
-
+      olderThan.setDate(olderThan.getDate() - (clearOlderThan || 7))
       cleanupResult = await clearProcessedItems(olderThan)
       console.log("Cleanup completed:", cleanupResult)
     }
@@ -61,7 +92,7 @@ export async function POST(request: NextRequest) {
     const stats = await getStagingStats()
 
     // Get cache stats
-    const cacheStats = getEntityCacheStats()
+    const cacheStats = useHybrid ? getHybridCacheStats() : getEntityCacheStats()
 
     return NextResponse.json({
       success: true,
@@ -70,7 +101,10 @@ export async function POST(request: NextRequest) {
       stats,
       cacheStats,
       phase: "resolution",
-      note: "Entities and relationships have been resolved and integrated into the knowledge graph.",
+      strategy: useHybrid ? "hybrid" : "rule-based",
+      note: useHybrid
+        ? `Hybrid resolution completed. Used LLM for ${result.strategyStats?.["llm-analysis"] || 0} entities. Total cost: $${(result.totalCost || 0).toFixed(4)}`
+        : "Traditional rule-based resolution completed.",
       performance: {
         timeTakenMs: result.timeTaken,
         entitiesPerSecond:
@@ -79,6 +113,7 @@ export async function POST(request: NextRequest) {
           result.relationshipsProcessed > 0
             ? (result.relationshipsProcessed / (result.timeTaken / 1000)).toFixed(2)
             : 0,
+        totalCostUSD: result.totalCost || 0,
       },
     })
   } catch (error) {
@@ -94,31 +129,30 @@ export async function GET(request: NextRequest) {
     const authHeader = request.headers.get("authorization")
     const expectedKey = process.env.INTERNAL_API_KEY
 
-    console.log("GET /api/resolve-entities - Auth check:")
-    console.log("- Auth header present:", !!authHeader)
-    console.log("- Expected key present:", !!expectedKey)
-
     if (!expectedKey) {
       console.error("INTERNAL_API_KEY environment variable not set")
       return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
     }
 
     if (!authHeader || authHeader !== `Bearer ${expectedKey}`) {
-      console.log("Authentication failed - header mismatch")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     // Get current staging stats
     const stats = await getStagingStats()
 
-    // Get cache stats
-    const cacheStats = getEntityCacheStats()
+    // Get both cache stats
+    const ruleBasedCacheStats = getEntityCacheStats()
+    const hybridCacheStats = getHybridCacheStats()
 
     return NextResponse.json({
       success: true,
       stats,
-      cacheStats,
-      note: "Current staging area statistics.",
+      cacheStats: {
+        ruleBased: ruleBasedCacheStats,
+        hybrid: hybridCacheStats,
+      },
+      note: "Current staging area statistics and cache information.",
     })
   } catch (error) {
     console.error("Error getting staging stats:", error)

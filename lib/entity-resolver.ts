@@ -15,16 +15,79 @@ const sql = neon(process.env.DATABASE_URL!)
 // Create a cache for entity lookups with 30-minute TTL
 const entityCache = new NodeCache({ stdTTL: 1800, checkperiod: 120 })
 
-// Function to normalize entity name for comparison
+// Enhanced function to normalize entity name for comparison
 function normalizeEntityName(name: string): string {
   return name
     .toLowerCase()
     .replace(/[^\w\s]/g, "") // Remove special characters
     .replace(/\s+/g, " ") // Normalize whitespace
+    .replace(/\b(company|corp|corporation|inc|incorporated|ltd|limited|llc|co|the)\b/g, "") // Remove common company suffixes
+    .replace(/\b(manufacturing|manufactuging|mfg|tech|technology|technologies|systems|solutions)\b/g, "") // Remove common tech terms
     .trim()
 }
 
-// Function to find matching entity using database-side text search
+// Enhanced function to generate alternative names for better matching
+function generateAlternativeNames(name: string): string[] {
+  const alternatives = [name]
+  const normalized = normalizeEntityName(name)
+
+  // Add normalized version
+  if (normalized !== name.toLowerCase()) {
+    alternatives.push(normalized)
+  }
+
+  // Common abbreviations and variations
+  const abbreviationMap: Record<string, string[]> = {
+    "taiwan semiconductor manufacturing company": ["tsmc", "taiwan semiconductor", "taiwan semi"],
+    tsmc: ["taiwan semiconductor manufacturing company", "taiwan semiconductor"],
+    "apple inc": ["apple", "apple computer"],
+    apple: ["apple inc", "apple computer"],
+    "microsoft corporation": ["microsoft", "msft"],
+    microsoft: ["microsoft corporation", "msft"],
+    amazon: ["amazon.com", "amazon inc"],
+    google: ["alphabet", "alphabet inc"],
+    alphabet: ["google", "alphabet inc"],
+    facebook: ["meta", "meta platforms"],
+    meta: ["facebook", "meta platforms"],
+    "international business machines": ["ibm"],
+    ibm: ["international business machines"],
+    "nvidia corporation": ["nvidia", "nvda"],
+    nvidia: ["nvidia corporation", "nvda"],
+    "advanced micro devices": ["amd"],
+    amd: ["advanced micro devices"],
+    "intel corporation": ["intel"],
+    intel: ["intel corporation"],
+  }
+
+  const lowerName = name.toLowerCase()
+  const normalizedLower = normalized.toLowerCase()
+
+  // Check for known abbreviations
+  if (abbreviationMap[lowerName]) {
+    alternatives.push(...abbreviationMap[lowerName])
+  }
+
+  if (abbreviationMap[normalizedLower]) {
+    alternatives.push(...abbreviationMap[normalizedLower])
+  }
+
+  // Generate acronyms for multi-word names
+  const words = name
+    .split(/\s+/)
+    .filter((word) => !["the", "and", "or", "of", "in", "at", "to", "for", "with", "by"].includes(word.toLowerCase()))
+
+  if (words.length > 1) {
+    const acronym = words.map((word) => word.charAt(0).toUpperCase()).join("")
+    if (acronym.length >= 2 && acronym.length <= 6) {
+      alternatives.push(acronym)
+      alternatives.push(acronym.toLowerCase())
+    }
+  }
+
+  return [...new Set(alternatives)] // Remove duplicates
+}
+
+// Enhanced function to find matching entity using multiple strategies
 async function findMatchingEntity(entityName: string, entityType: string): Promise<any | null> {
   // First check the cache
   const cacheKey = `${entityType}:${entityName}`
@@ -33,86 +96,134 @@ async function findMatchingEntity(entityName: string, entityType: string): Promi
     return cachedEntity
   }
 
-  // Normalize the name for searching
-  const normalizedName = normalizeEntityName(entityName)
+  // Generate all possible alternative names
+  const alternativeNames = generateAlternativeNames(entityName)
+  const normalizedAlternatives = alternativeNames.map((name) => normalizeEntityName(name))
 
-  // Try exact match on normalized name first (fastest)
-  const exactMatches = await sql`
-    SELECT id, name, type, description, normalized_name 
-    FROM "Entity"
-    WHERE type = ${entityType}
-    AND normalized_name = ${normalizedName}
-    LIMIT 1
-  `
+  console.log(`Searching for entity "${entityName}" with alternatives:`, alternativeNames)
 
-  if (exactMatches.length > 0) {
-    // Cache the result
-    entityCache.set(cacheKey, exactMatches[0])
-    return exactMatches[0]
+  // Strategy 1: Exact match on any alternative name
+  for (const altName of alternativeNames) {
+    const exactMatches = await sql`
+      SELECT id, name, type, description, normalized_name 
+      FROM "Entity"
+      WHERE type = ${entityType}
+      AND (LOWER(name) = ${altName.toLowerCase()} OR normalized_name = ${normalizeEntityName(altName)})
+      LIMIT 1
+    `
+
+    if (exactMatches.length > 0) {
+      console.log(`Found exact match for "${entityName}" -> "${exactMatches[0].name}"`)
+      entityCache.set(cacheKey, exactMatches[0])
+      return exactMatches[0]
+    }
   }
 
-  // Try fuzzy matching using trigram similarity
-  const fuzzyMatches = await sql`
-    SELECT id, name, type, description, normalized_name,
-           similarity(normalized_name, ${normalizedName}) as sim_score
-    FROM "Entity"
-    WHERE type = ${entityType}
-    AND similarity(normalized_name, ${normalizedName}) > 0.4
-    ORDER BY sim_score DESC
-    LIMIT 1
-  `
+  // Strategy 2: Fuzzy matching using trigram similarity on all alternatives
+  for (const normalizedAlt of normalizedAlternatives) {
+    const fuzzyMatches = await sql`
+      SELECT id, name, type, description, normalized_name,
+             similarity(normalized_name, ${normalizedAlt}) as sim_score
+      FROM "Entity"
+      WHERE type = ${entityType}
+      AND similarity(normalized_name, ${normalizedAlt}) > 0.3
+      ORDER BY sim_score DESC
+      LIMIT 1
+    `
 
-  if (fuzzyMatches.length > 0) {
-    // Cache the result
-    entityCache.set(cacheKey, fuzzyMatches[0])
-    return fuzzyMatches[0]
+    if (fuzzyMatches.length > 0 && fuzzyMatches[0].sim_score > 0.5) {
+      console.log(
+        `Found fuzzy match for "${entityName}" -> "${fuzzyMatches[0].name}" (score: ${fuzzyMatches[0].sim_score})`,
+      )
+      entityCache.set(cacheKey, fuzzyMatches[0])
+      return fuzzyMatches[0]
+    }
   }
 
-  // Try containment matching (one name contains the other)
-  const containmentMatches = await sql`
-    SELECT id, name, type, description, normalized_name
-    FROM "Entity"
-    WHERE type = ${entityType}
-    AND (
-      normalized_name LIKE ${`%${normalizedName}%`}
-      OR ${normalizedName} LIKE CONCAT('%', normalized_name, '%')
+  // Strategy 3: Containment matching (one name contains the other)
+  for (const normalizedAlt of normalizedAlternatives) {
+    const containmentMatches = await sql`
+      SELECT id, name, type, description, normalized_name
+      FROM "Entity"
+      WHERE type = ${entityType}
+      AND (
+        normalized_name LIKE ${`%${normalizedAlt}%`}
+        OR ${normalizedAlt} LIKE CONCAT('%', normalized_name, '%')
+      )
+      ORDER BY LENGTH(normalized_name) ASC
+      LIMIT 1
+    `
+
+    if (containmentMatches.length > 0) {
+      console.log(`Found containment match for "${entityName}" -> "${containmentMatches[0].name}"`)
+      entityCache.set(cacheKey, containmentMatches[0])
+      return containmentMatches[0]
+    }
+  }
+
+  // Strategy 4: Word-based matching (check if all significant words are present)
+  const significantWords = entityName
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(
+      (word) =>
+        word.length > 2 &&
+        !["the", "and", "or", "of", "in", "at", "to", "for", "with", "by", "inc", "corp", "ltd", "llc"].includes(word),
     )
-    LIMIT 1
-  `
 
-  if (containmentMatches.length > 0) {
-    // Cache the result
-    entityCache.set(cacheKey, containmentMatches[0])
-    return containmentMatches[0]
+  if (significantWords.length > 0) {
+    // Build a query that checks if all significant words are present
+    const wordConditions = significantWords.map((word) => `normalized_name LIKE '%${word}%'`).join(" AND ")
+
+    try {
+      const wordMatches = await sql`
+        SELECT id, name, type, description, normalized_name
+        FROM "Entity"
+        WHERE type = ${entityType}
+        AND (${sql.unsafe(wordConditions)})
+        ORDER BY LENGTH(normalized_name) ASC
+        LIMIT 1
+      `
+
+      if (wordMatches.length > 0) {
+        console.log(`Found word-based match for "${entityName}" -> "${wordMatches[0].name}"`)
+        entityCache.set(cacheKey, wordMatches[0])
+        return wordMatches[0]
+      }
+    } catch (error) {
+      console.error("Error in word-based matching:", error)
+    }
   }
 
-  // No match found
+  console.log(`No match found for "${entityName}"`)
   return null
 }
 
-// Function to resolve a batch of staged entities with optimized database queries
+// Function to resolve a batch of staged entities with enhanced matching
 export async function resolveEntities(batchSize = 100): Promise<{
   processed: number
   created: number
   merged: number
   errors: number
+  mergeDetails: Array<{ source: string; target: string; reason: string }>
 }> {
   // Get a batch of unprocessed staged entities
   const stagedEntities = await getStagedEntities(batchSize, false)
 
   if (stagedEntities.length === 0) {
-    return { processed: 0, created: 0, merged: 0, errors: 0 }
+    return { processed: 0, created: 0, merged: 0, errors: 0, mergeDetails: [] }
   }
 
   let created = 0
   let merged = 0
   let errors = 0
   const processedIds: string[] = []
+  const mergeDetails: Array<{ source: string; target: string; reason: string }> = []
 
   // Process each staged entity
   for (const stagedEntity of stagedEntities) {
     try {
-      // Find a matching entity using optimized database search
+      // Find a matching entity using enhanced search
       const matchingEntity = await findMatchingEntity(stagedEntity.name, stagedEntity.type)
 
       let entityId: string
@@ -120,6 +231,13 @@ export async function resolveEntities(batchSize = 100): Promise<{
       if (matchingEntity) {
         // Use the existing entity
         entityId = matchingEntity.id
+
+        // Record the merge
+        mergeDetails.push({
+          source: stagedEntity.name,
+          target: matchingEntity.name,
+          reason: "Entity resolution matched existing entity",
+        })
 
         // Update description if the staged entity has a more detailed one
         if (
@@ -161,7 +279,6 @@ export async function resolveEntities(batchSize = 100): Promise<{
       await createEntityMention(stagedEntity.episodeId, entityId)
 
       // Mark as processed (we'll need the staged entity ID)
-      // For now, let's get it from the database
       const stagedEntityRecord = await sql`
         SELECT id FROM "StagedEntity" 
         WHERE name = ${stagedEntity.name} 
@@ -190,6 +307,7 @@ export async function resolveEntities(batchSize = 100): Promise<{
     created,
     merged,
     errors,
+    mergeDetails,
   }
 }
 
@@ -212,48 +330,16 @@ export async function resolveRelationships(batchSize = 100): Promise<{
   let errors = 0
   const processedIds: string[] = []
 
-  // Helper function to find entity ID by name
+  // Helper function to find entity ID by name using enhanced matching
   async function findEntityIdByName(name: string): Promise<string | null> {
-    // Normalize the name for searching
-    const normalizedName = normalizeEntityName(name)
+    // Try all entity types since relationships might not specify type
+    const types = ["Company", "Person", "Topic"]
 
-    // Try exact match on normalized name first
-    const entities = await sql`
-      SELECT id, name, type 
-      FROM "Entity"
-      WHERE normalized_name = ${normalizedName}
-      LIMIT 1
-    `
-
-    if (entities.length > 0) {
-      return entities[0].id
-    }
-
-    // Try fuzzy match
-    const fuzzyEntities = await sql`
-      SELECT id, name, type,
-             similarity(normalized_name, ${normalizedName}) as sim_score
-      FROM "Entity"
-      WHERE similarity(normalized_name, ${normalizedName}) > 0.4
-      ORDER BY sim_score DESC
-      LIMIT 1
-    `
-
-    if (fuzzyEntities.length > 0) {
-      return fuzzyEntities[0].id
-    }
-
-    // Try containment match
-    const containmentEntities = await sql`
-      SELECT id, name, type
-      FROM "Entity"
-      WHERE normalized_name LIKE ${`%${normalizedName}%`}
-         OR ${normalizedName} LIKE CONCAT('%', normalized_name, '%')
-      LIMIT 1
-    `
-
-    if (containmentEntities.length > 0) {
-      return containmentEntities[0].id
+    for (const type of types) {
+      const entity = await findMatchingEntity(name, type)
+      if (entity) {
+        return entity.id
+      }
     }
 
     return null
@@ -271,7 +357,9 @@ export async function resolveRelationships(batchSize = 100): Promise<{
         await createOrUpdateConnection(stagedRel.episodeId, sourceEntityId, targetEntityId, stagedRel.description)
         created++
       } else {
-        // Skip if either entity doesn't exist
+        console.log(
+          `Skipping relationship ${stagedRel.sourceName} -> ${stagedRel.targetName}: source=${!!sourceEntityId}, target=${!!targetEntityId}`,
+        )
         skipped++
       }
 
@@ -307,7 +395,7 @@ export async function resolveRelationships(batchSize = 100): Promise<{
   }
 }
 
-// Function to run a complete resolution process with improved batching
+// Enhanced function to run a complete resolution process
 export async function runResolution(
   entityBatchSize = 100,
   relationshipBatchSize = 100,
@@ -321,6 +409,7 @@ export async function runResolution(
   relationshipsSkipped: number
   errors: number
   timeTaken: number
+  mergeDetails: Array<{ source: string; target: string; reason: string }>
 }> {
   const startTime = Date.now()
 
@@ -331,22 +420,37 @@ export async function runResolution(
   let relationshipsCreated = 0
   let relationshipsSkipped = 0
   let errors = 0
+  const allMergeDetails: Array<{ source: string; target: string; reason: string }> = []
+
+  console.log("Starting entity resolution process...")
 
   // Process entities first
   for (let i = 0; i < maxBatches; i++) {
+    console.log(`Processing entity batch ${i + 1}/${maxBatches}`)
     const result = await resolveEntities(entityBatchSize)
 
     entitiesProcessed += result.processed
     entitiesCreated += result.created
     entitiesMerged += result.merged
     errors += result.errors
+    allMergeDetails.push(...result.mergeDetails)
+
+    console.log(
+      `Batch ${i + 1} results: processed=${result.processed}, created=${result.created}, merged=${result.merged}`,
+    )
 
     // Stop if no more entities to process
-    if (result.processed === 0) break
+    if (result.processed === 0) {
+      console.log("No more entities to process")
+      break
+    }
   }
+
+  console.log("Starting relationship resolution process...")
 
   // Then process relationships
   for (let i = 0; i < maxBatches; i++) {
+    console.log(`Processing relationship batch ${i + 1}/${maxBatches}`)
     const result = await resolveRelationships(relationshipBatchSize)
 
     relationshipsProcessed += result.processed
@@ -354,11 +458,30 @@ export async function runResolution(
     relationshipsSkipped += result.skipped
     errors += result.errors
 
+    console.log(
+      `Batch ${i + 1} results: processed=${result.processed}, created=${result.created}, skipped=${result.skipped}`,
+    )
+
     // Stop if no more relationships to process
-    if (result.processed === 0) break
+    if (result.processed === 0) {
+      console.log("No more relationships to process")
+      break
+    }
   }
 
   const timeTaken = Date.now() - startTime
+
+  console.log("Resolution process completed:", {
+    entitiesProcessed,
+    entitiesCreated,
+    entitiesMerged,
+    relationshipsProcessed,
+    relationshipsCreated,
+    relationshipsSkipped,
+    errors,
+    timeTaken,
+    mergeCount: allMergeDetails.length,
+  })
 
   return {
     entitiesProcessed,
@@ -369,6 +492,7 @@ export async function runResolution(
     relationshipsSkipped,
     errors,
     timeTaken,
+    mergeDetails: allMergeDetails,
   }
 }
 
