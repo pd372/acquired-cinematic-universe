@@ -41,6 +41,7 @@ interface ResolutionResult {
   errors: number
   timeTaken: number
   mergeDetails?: Array<{ source: string; target: string; reason: string }>
+  robustMode?: boolean
 }
 
 export default function ResolutionDashboard() {
@@ -51,6 +52,7 @@ export default function ResolutionDashboard() {
   const [result, setResult] = useState<ResolutionResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [debugInfo, setDebugInfo] = useState<any>(null)
+  const [robustResult, setRobustResult] = useState<any>(null)
 
   // API Key dialog state
   const [showApiKeyDialog, setShowApiKeyDialog] = useState(false)
@@ -194,6 +196,64 @@ export default function ResolutionDashboard() {
     }
   }
 
+  async function runRobustRelationshipResolution(batchSize = 100) {
+    try {
+      setIsRunning(true)
+      setError(null)
+
+      console.log("Making robust relationship resolution request with API key length:", apiKey.length)
+
+      const response = await fetch("/api/resolve-relationships-robust", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ batchSize }),
+      })
+
+      console.log("Robust relationship resolution response status:", response.status)
+
+      if (response.status === 401) {
+        const errorData = await response.json().catch(() => ({ error: "Unauthorized" }))
+        throw new Error(`Authentication failed: ${errorData.error || "Invalid API key"}`)
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
+        throw new Error(
+          `Failed to run robust resolution (${response.status}): ${errorData.error || response.statusText}`,
+        )
+      }
+
+      const data = await response.json()
+      console.log("Robust relationship resolution response data:", data)
+
+      setRobustResult(data.result)
+      setStats(data.stats)
+
+      // Also update the main result to show in the Results tab
+      setResult({
+        ...data.result,
+        entitiesProcessed: 0,
+        entitiesCreated: 0,
+        entitiesMerged: 0,
+        relationshipsProcessed: data.result.processed,
+        relationshipsCreated: data.result.created,
+        relationshipsSkipped: data.result.skipped,
+        errors: data.result.errors,
+        timeTaken: 0,
+        robustMode: true,
+      })
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to run robust relationship resolution"
+      setError(errorMessage)
+      console.error("Error running robust relationship resolution:", err)
+    } finally {
+      setIsRunning(false)
+    }
+  }
+
   return (
     <>
       <Card className="w-full max-w-4xl bg-gray-900 border-gray-800 text-white">
@@ -205,7 +265,7 @@ export default function ResolutionDashboard() {
               size="icon"
               onClick={fetchStats}
               disabled={isLoading}
-              className="h-8 w-8 rounded-full"
+              className="h-8 w-8 rounded-full bg-transparent"
             >
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             </Button>
@@ -387,13 +447,69 @@ export default function ResolutionDashboard() {
                   </Button>
                 </div>
               </div>
+
+              <div className="bg-gray-800 p-4 rounded-md mt-4">
+                <h3 className="text-sm font-medium text-gray-400 mb-4">Robust Relationship Resolution</h3>
+                <p className="text-xs text-gray-500 mb-4">
+                  Advanced relationship resolution with cross-validation and business logic. Use this when standard
+                  resolution misses obvious connections.
+                </p>
+
+                <div className="space-y-4">
+                  <Button
+                    onClick={() => promptForApiKey(() => runRobustRelationshipResolution(100))}
+                    disabled={isRunning}
+                    className="bg-purple-600 text-white hover:bg-purple-700 w-full"
+                  >
+                    {isRunning ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <GitMerge className="mr-2 h-4 w-4" />
+                        Run Robust Relationship Resolution
+                      </>
+                    )}
+                  </Button>
+
+                  <Button
+                    onClick={() => promptForApiKey(() => runRobustRelationshipResolution(50))}
+                    disabled={isRunning}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    {isRunning ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="mr-2 h-4 w-4" />
+                        Test Robust Resolution (50 items)
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
             </TabsContent>
 
             <TabsContent value="results" className="space-y-4 mt-4">
               {result ? (
                 <div className="space-y-4">
                   <div className="bg-gray-800 p-4 rounded-md">
-                    <h3 className="text-sm font-medium text-gray-400 mb-4">Last Resolution Results</h3>
+                    <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center">
+                      {result.robustMode ? (
+                        <>
+                          <GitMerge className="mr-2 h-4 w-4" />
+                          Last Robust Relationship Resolution Results
+                        </>
+                      ) : (
+                        "Last Resolution Results"
+                      )}
+                    </h3>
 
                     <dl className="space-y-3">
                       <div className="grid grid-cols-2 gap-2">
@@ -482,6 +598,73 @@ export default function ResolutionDashboard() {
                   No resolution has been run yet. Go to the Actions tab to run a resolution.
                 </div>
               )}
+
+              {/* Robust Relationship Results */}
+              {robustResult && (
+                <div className="bg-gray-800 p-4 rounded-md mt-4">
+                  <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center">
+                    <GitMerge className="mr-2 h-4 w-4" />
+                    Robust Relationship Resolution Results
+                  </h3>
+
+                  <dl className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <dt className="text-xs text-gray-500">Relationships Processed</dt>
+                        <dd className="text-lg font-mono">{robustResult.processed}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-gray-500">Relationships Created</dt>
+                        <dd className="text-lg font-mono text-green-400">{robustResult.created}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-gray-500">Relationships Skipped</dt>
+                        <dd className="text-lg font-mono text-yellow-400">{robustResult.skipped}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-gray-500">Errors</dt>
+                        <dd className="text-lg font-mono text-red-400">{robustResult.errors}</dd>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-gray-700">
+                      <dt className="text-xs text-gray-500 mb-1">Success Rate</dt>
+                      <dd className="text-lg font-mono">
+                        {robustResult.created + robustResult.skipped > 0
+                          ? `${((robustResult.created / (robustResult.created + robustResult.skipped)) * 100).toFixed(1)}%`
+                          : "0%"}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  {/* Detailed Results */}
+                  {robustResult.details && robustResult.details.length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="text-xs font-medium text-gray-400 mb-2">Detailed Results (Top 10)</h4>
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {robustResult.details.slice(0, 10).map((detail, index) => (
+                          <div key={index} className="bg-gray-900 p-3 rounded text-sm">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-blue-400">"{detail.source}"</span>
+                              <span className="text-gray-500 mx-2">→</span>
+                              <span className="text-green-400">"{detail.target}"</span>
+                              <span className="text-xs text-gray-500 ml-2">
+                                {(detail.confidence * 100).toFixed(0)}%
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-400">{detail.result}</div>
+                          </div>
+                        ))}
+                        {robustResult.details.length > 10 && (
+                          <div className="text-xs text-gray-500 text-center py-2">
+                            ... and {robustResult.details.length - 10} more results
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="debug" className="space-y-4 mt-4">
@@ -501,7 +684,12 @@ export default function ResolutionDashboard() {
                     />
                   </div>
 
-                  <Button onClick={debugAuth} disabled={!apiKey.trim()} className="w-full" variant="outline">
+                  <Button
+                    onClick={debugAuth}
+                    disabled={!apiKey.trim()}
+                    className="w-full bg-transparent"
+                    variant="outline"
+                  >
                     <Bug className="mr-2 h-4 w-4" />
                     Debug Authentication
                   </Button>
