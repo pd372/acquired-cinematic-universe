@@ -68,6 +68,7 @@ async function findEntityWithCrossValidation(entityName: string): Promise<Entity
   }
 
   // Strategy 3: Fuzzy matching with similarity
+  // FIX: Re-calculate similarity in ORDER BY to avoid "column does not exist" error
   const fuzzyMatches = await sql`
     SELECT id, name, type, normalized_name,
            similarity(LOWER(name), ${normalizedName}) as name_sim,
@@ -81,7 +82,13 @@ async function findEntityWithCrossValidation(entityName: string): Promise<Entity
          .replace(/[^\w\s]/g, "")
          .replace(/\s+/g, " ")
          .trim()}) > 0.6
-    ORDER BY GREATEST(name_sim, norm_sim) DESC
+    ORDER BY GREATEST(
+        similarity(LOWER(name), ${normalizedName}),
+        similarity(normalized_name, ${normalizedName
+          .replace(/[^\w\s]/g, "")
+          .replace(/\s+/g, " ")
+          .trim()})
+    ) DESC
     LIMIT 1
   `
 
@@ -320,7 +327,7 @@ export async function resolveRelationshipsRobust(batchSize = 100): Promise<{
         }
       }
 
-      // Mark as processed
+      // Get the staged relationship ID for marking as processed
       const stagedRelRecord = await sql`
         SELECT id FROM "StagedRelationship" 
         WHERE "sourceName" = ${stagedRel.sourceName} 
