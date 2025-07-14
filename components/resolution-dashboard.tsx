@@ -133,7 +133,6 @@ export default function ResolutionDashboard() {
   function promptForApiKey(action: () => Promise<void>) {
     setPendingAction(() => action)
     setShowApiKeyDialog(true)
-    // Do NOT clear apiKey here, let it persist if already entered
     setError(null) // Clear any previous errors
   }
 
