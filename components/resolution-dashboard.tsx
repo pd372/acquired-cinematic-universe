@@ -15,6 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Switch } from "@/components/ui/switch" // Import Switch component
+import { Separator } from "@/components/ui/separator" // Import Separator component
 
 interface StagingStats {
   pendingEntities: number
@@ -42,6 +44,8 @@ interface ResolutionResult {
   timeTaken: number
   mergeDetails?: Array<{ source: string; target: string; reason: string }>
   robustMode?: boolean
+  totalCost?: number // Add totalCost for hybrid mode
+  strategyStats?: Record<string, number> // Add strategyStats for hybrid mode
 }
 
 export default function ResolutionDashboard() {
@@ -58,6 +62,12 @@ export default function ResolutionDashboard() {
   const [showApiKeyDialog, setShowApiKeyDialog] = useState(false)
   const [apiKey, setApiKey] = useState("")
   const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null)
+
+  // New state for resolution parameters
+  const [useHybrid, setUseHybrid] = useState(true)
+  const [useLLM, setUseLLM] = useState(true)
+  const [entityMaxBatches, setEntityMaxBatches] = useState(10)
+  const [robustRelationshipBatchSize, setRobustRelationshipBatchSize] = useState(100)
 
   // Fetch stats on load and periodically (no auth needed for stats)
   useEffect(() => {
@@ -147,18 +157,20 @@ export default function ResolutionDashboard() {
     }
   }
 
-  async function runResolution(params: {
+  async function runEntityResolutionCall(params: {
     entityBatchSize?: number
     relationshipBatchSize?: number
     maxBatches?: number
     clearOlderThan?: number
     clearCache?: boolean
+    useHybrid?: boolean
+    useLLM?: boolean
   }) {
     try {
       setIsRunning(true)
       setError(null)
 
-      console.log("Making resolution request with API key length:", apiKey.length)
+      console.log("Making entity resolution request with API key length:", apiKey.length)
 
       const response = await fetch("/api/resolve-entities", {
         method: "POST",
@@ -169,7 +181,7 @@ export default function ResolutionDashboard() {
         body: JSON.stringify(params),
       })
 
-      console.log("Resolution response status:", response.status)
+      console.log("Entity resolution response status:", response.status)
 
       if (response.status === 401) {
         const errorData = await response.json().catch(() => ({ error: "Unauthorized" }))
@@ -182,21 +194,21 @@ export default function ResolutionDashboard() {
       }
 
       const data = await response.json()
-      console.log("Resolution response data:", data)
+      console.log("Entity resolution response data:", data)
 
       setResult(data.result)
       setStats(data.stats)
       setCacheStats(data.cacheStats)
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to run resolution"
+      const errorMessage = err instanceof Error ? err.message : "Failed to run entity resolution"
       setError(errorMessage)
-      console.error("Error running resolution:", err)
+      console.error("Error running entity resolution:", err)
     } finally {
       setIsRunning(false)
     }
   }
 
-  async function runRobustRelationshipResolution(batchSize = 100) {
+  async function runRobustRelationshipResolutionCall(batchSize: number) {
     try {
       setIsRunning(true)
       setError(null)
@@ -235,14 +247,14 @@ export default function ResolutionDashboard() {
       // Also update the main result to show in the Results tab
       setResult({
         ...data.result,
-        entitiesProcessed: 0,
+        entitiesProcessed: 0, // These are not processed by relationship resolver
         entitiesCreated: 0,
         entitiesMerged: 0,
         relationshipsProcessed: data.result.processed,
         relationshipsCreated: data.result.created,
         relationshipsSkipped: data.result.skipped,
         errors: data.result.errors,
-        timeTaken: 0,
+        timeTaken: 0, // Time taken is specific to this call, not overall
         robustMode: true,
       })
     } catch (err) {
@@ -351,13 +363,52 @@ export default function ResolutionDashboard() {
 
             <TabsContent value="actions" className="space-y-4 mt-4">
               <div className="bg-gray-800 p-4 rounded-md">
-                <h3 className="text-sm font-medium text-gray-400 mb-4">Run Resolution</h3>
+                <h3 className="text-sm font-medium text-gray-400 mb-4">Entity Resolution</h3>
 
                 <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="useHybrid">Use Hybrid Resolution (LLM & Rule-based)</Label>
+                    <Switch
+                      id="useHybrid"
+                      checked={useHybrid}
+                      onCheckedChange={setUseHybrid}
+                      disabled={isRunning}
+                      className="data-[state=checked]:bg-[#00E5C7]"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="useLLM">Use LLM for Hybrid Resolution</Label>
+                    <Switch
+                      id="useLLM"
+                      checked={useLLM}
+                      onCheckedChange={setUseLLM}
+                      disabled={isRunning || !useHybrid}
+                      className="data-[state=checked]:bg-[#00E5C7]"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="entityMaxBatches">Max Batches to Process</Label>
+                    <Input
+                      id="entityMaxBatches"
+                      type="number"
+                      value={entityMaxBatches}
+                      onChange={(e) => setEntityMaxBatches(Number(e.target.value))}
+                      min={1}
+                      disabled={isRunning}
+                      className="bg-gray-700 border-gray-600"
+                    />
+                  </div>
+
                   <Button
                     onClick={() =>
                       promptForApiKey(() =>
-                        runResolution({ entityBatchSize: 100, relationshipBatchSize: 100, maxBatches: 5 }),
+                        runEntityResolutionCall({
+                          entityBatchSize: 100,
+                          relationshipBatchSize: 100, // This is ignored by hybrid entity resolver, but kept for type consistency
+                          maxBatches: entityMaxBatches,
+                          useHybrid: useHybrid,
+                          useLLM: useLLM,
+                        }),
                       )
                     }
                     disabled={isRunning}
@@ -366,12 +417,12 @@ export default function ResolutionDashboard() {
                     {isRunning ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Processing...
+                        Processing Entities...
                       </>
                     ) : (
                       <>
                         <Play className="mr-2 h-4 w-4" />
-                        Run Standard Resolution (5 batches)
+                        Run Entity Resolution
                       </>
                     )}
                   </Button>
@@ -379,34 +430,13 @@ export default function ResolutionDashboard() {
                   <Button
                     onClick={() =>
                       promptForApiKey(() =>
-                        runResolution({ entityBatchSize: 100, relationshipBatchSize: 100, maxBatches: 20 }),
-                      )
-                    }
-                    disabled={isRunning}
-                    variant="outline"
-                    className="w-full"
-                  >
-                    {isRunning ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="mr-2 h-4 w-4" />
-                        Run Full Resolution (20 batches)
-                      </>
-                    )}
-                  </Button>
-
-                  <Button
-                    onClick={() =>
-                      promptForApiKey(() =>
-                        runResolution({
+                        runEntityResolutionCall({
                           entityBatchSize: 50,
                           relationshipBatchSize: 50,
                           maxBatches: 2,
                           clearCache: true,
+                          useHybrid: useHybrid,
+                          useLLM: useLLM,
                         }),
                       )
                     }
@@ -422,13 +452,57 @@ export default function ResolutionDashboard() {
                     ) : (
                       <>
                         <RefreshCw className="mr-2 h-4 w-4" />
-                        Clear Cache & Run Test Resolution
+                        Clear Cache & Run Test Entity Resolution
                       </>
                     )}
                   </Button>
 
+                  <Separator className="my-6 bg-gray-700" />
+
+                  <h3 className="text-sm font-medium text-gray-400 mb-4">Robust Relationship Resolution</h3>
+                  <p className="text-xs text-gray-500 mb-4">
+                    Advanced relationship resolution with cross-validation and business logic. Use this after entity
+                    resolution.
+                  </p>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="robustRelationshipBatchSize">Batch Size for Relationships</Label>
+                    <Input
+                      id="robustRelationshipBatchSize"
+                      type="number"
+                      value={robustRelationshipBatchSize}
+                      onChange={(e) => setRobustRelationshipBatchSize(Number(e.target.value))}
+                      min={1}
+                      disabled={isRunning}
+                      className="bg-gray-700 border-gray-600"
+                    />
+                  </div>
+
                   <Button
-                    onClick={() => promptForApiKey(() => runResolution({ clearOlderThan: 7 }))}
+                    onClick={() =>
+                      promptForApiKey(() => runRobustRelationshipResolutionCall(robustRelationshipBatchSize))
+                    }
+                    disabled={isRunning}
+                    className="bg-purple-600 text-white hover:bg-purple-700 w-full"
+                  >
+                    {isRunning ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing Relationships...
+                      </>
+                    ) : (
+                      <>
+                        <GitMerge className="mr-2 h-4 w-4" />
+                        Run Robust Relationship Resolution
+                      </>
+                    )}
+                  </Button>
+
+                  <Separator className="my-6 bg-gray-700" />
+
+                  <h3 className="text-sm font-medium text-gray-400 mb-4">Cleanup</h3>
+                  <Button
+                    onClick={() => promptForApiKey(() => runEntityResolutionCall({ clearOlderThan: 7 }))}
                     disabled={isRunning}
                     variant="destructive"
                     className="w-full"
@@ -447,53 +521,6 @@ export default function ResolutionDashboard() {
                   </Button>
                 </div>
               </div>
-
-              <div className="bg-gray-800 p-4 rounded-md mt-4">
-                <h3 className="text-sm font-medium text-gray-400 mb-4">Robust Relationship Resolution</h3>
-                <p className="text-xs text-gray-500 mb-4">
-                  Advanced relationship resolution with cross-validation and business logic. Use this when standard
-                  resolution misses obvious connections.
-                </p>
-
-                <div className="space-y-4">
-                  <Button
-                    onClick={() => promptForApiKey(() => runRobustRelationshipResolution(100))}
-                    disabled={isRunning}
-                    className="bg-purple-600 text-white hover:bg-purple-700 w-full"
-                  >
-                    {isRunning ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <GitMerge className="mr-2 h-4 w-4" />
-                        Run Robust Relationship Resolution
-                      </>
-                    )}
-                  </Button>
-
-                  <Button
-                    onClick={() => promptForApiKey(() => runRobustRelationshipResolution(50))}
-                    disabled={isRunning}
-                    variant="outline"
-                    className="w-full"
-                  >
-                    {isRunning ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="mr-2 h-4 w-4" />
-                        Test Robust Resolution (50 items)
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
             </TabsContent>
 
             <TabsContent value="results" className="space-y-4 mt-4">
@@ -507,7 +534,7 @@ export default function ResolutionDashboard() {
                           Last Robust Relationship Resolution Results
                         </>
                       ) : (
-                        "Last Resolution Results"
+                        "Last Entity Resolution Results"
                       )}
                     </h3>
 
@@ -545,6 +572,12 @@ export default function ResolutionDashboard() {
                           <dt className="text-xs text-gray-500">Time Taken</dt>
                           <dd className="text-lg font-mono">{(result.timeTaken / 1000).toFixed(2)}s</dd>
                         </div>
+                        {result.totalCost !== undefined && (
+                          <div>
+                            <dt className="text-xs text-gray-500">Total LLM Cost</dt>
+                            <dd className="text-lg font-mono">${result.totalCost.toFixed(4)}</dd>
+                          </div>
+                        )}
                       </div>
 
                       <div className="pt-2 border-t border-gray-700">
@@ -568,6 +601,19 @@ export default function ResolutionDashboard() {
                           </div>
                         </dd>
                       </div>
+                      {result.strategyStats && Object.keys(result.strategyStats).length > 0 && (
+                        <div className="pt-2 border-t border-gray-700">
+                          <dt className="text-xs text-gray-500 mb-1">Strategy Usage</dt>
+                          <dd className="grid grid-cols-2 gap-2">
+                            {Object.entries(result.strategyStats).map(([strategyName, count]) => (
+                              <div key={strategyName} className="bg-gray-900 p-2 rounded">
+                                <span className="text-xs text-gray-500">{strategyName}</span>
+                                <div className="text-lg font-mono">{count}</div>
+                              </div>
+                            ))}
+                          </dd>
+                        </div>
+                      )}
                     </dl>
                   </div>
 
@@ -598,7 +644,7 @@ export default function ResolutionDashboard() {
                     <div className="bg-gray-800 p-4 rounded-md mt-4">
                       <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center">
                         <GitMerge className="mr-2 h-4 w-4" />
-                        Robust Relationship Resolution Results
+                        Robust Relationship Resolution Details
                       </h3>
 
                       <dl className="space-y-3">
