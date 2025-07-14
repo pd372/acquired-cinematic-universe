@@ -30,6 +30,7 @@ model Entity {
   name        String
   type        String   // "Company", "Person", or "Topic"
   description String?  @db.Text
+  normalized_name String? // Added for normalization
   
   // Relationships
   mentions    EntityMention[]
@@ -60,6 +61,7 @@ model Connection {
   targetEntity Entity   @relation("TargetEntity", fields: [targetEntityId], references: [id], onDelete: Cascade)
   targetEntityId String
   strength    Int      @default(1)
+  createdAt   DateTime @default(now()) // ADDED: New field for creation timestamp
   
   // Unique constraint to prevent duplicate connections in the same episode
   @@unique([episodeId, sourceEntityId, targetEntityId])
