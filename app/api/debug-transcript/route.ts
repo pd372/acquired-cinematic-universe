@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import * as cheerio from "cheerio"
 
+export const dynamic = "force-dynamic"
+
 // Function to extract only the relevant content from the transcript
 function extractRelevantTranscriptContent(fullTranscript: string): string {
   // Convert to lowercase for case-insensitive matching
