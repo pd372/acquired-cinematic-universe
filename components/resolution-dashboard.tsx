@@ -61,7 +61,8 @@ export default function ResolutionDashboard() {
   // API Key dialog state
   const [showApiKeyDialog, setShowApiKeyDialog] = useState(false)
   const [apiKey, setApiKey] = useState("")
-  const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null)
+  // Changed pendingAction type to accept the API key as an argument
+  const [pendingAction, setPendingAction] = useState<((key: string) => Promise<void>) | null>(null)
 
   // New state for resolution parameters
   const [useHybrid, setUseHybrid] = useState(true)
@@ -130,7 +131,8 @@ export default function ResolutionDashboard() {
     }
   }
 
-  function promptForApiKey(action: () => Promise<void>) {
+  // promptForApiKey now takes a function that expects the API key
+  function promptForApiKey(action: (key: string) => Promise<void>) {
     setPendingAction(() => action)
     setShowApiKeyDialog(true)
     setError(null) // Clear any previous errors
@@ -146,16 +148,18 @@ export default function ResolutionDashboard() {
 
     try {
       setShowApiKeyDialog(false)
-      await pendingAction()
+      // Pass the current apiKey directly to the pending action
+      await pendingAction(apiKey.trim())
     } catch (err) {
       setError(err instanceof Error ? err.message : "Operation failed")
       console.error("Operation error:", err)
     } finally {
       setPendingAction(null)
-      // REMOVED: setApiKey(""); // This line was clearing the API key after execution
+      // Removed setApiKey("") here, as it's no longer needed and was causing issues
     }
   }
 
+  // runEntityResolutionCall now accepts an optional overrideApiKey
   async function runEntityResolutionCall(params: {
     entityBatchSize?: number
     relationshipBatchSize?: number
@@ -164,18 +168,22 @@ export default function ResolutionDashboard() {
     clearCache?: boolean
     useHybrid?: boolean
     useLLM?: boolean
+    overrideApiKey?: string // New parameter
   }) {
     try {
       setIsRunning(true)
       setError(null)
 
-      console.log("Making entity resolution request with API key length:", apiKey.length)
+      // Use the overrideApiKey if provided, otherwise use the component's state apiKey
+      const keyToUse = params.overrideApiKey || apiKey.trim()
+
+      console.log("Making entity resolution request with API key length:", keyToUse.length)
 
       const response = await fetch("/api/resolve-entities", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey.trim()}`,
+          Authorization: `Bearer ${keyToUse}`,
         },
         body: JSON.stringify(params),
       })
@@ -207,18 +215,22 @@ export default function ResolutionDashboard() {
     }
   }
 
-  async function runRobustRelationshipResolutionCall(batchSize: number) {
+  // runRobustRelationshipResolutionCall now accepts an optional overrideApiKey
+  async function runRobustRelationshipResolutionCall(batchSize: number, overrideApiKey?: string) {
     try {
       setIsRunning(true)
       setError(null)
 
-      console.log("Making robust relationship resolution request with API key length:", apiKey.length)
+      // Use the overrideApiKey if provided, otherwise use the component's state apiKey
+      const keyToUse = overrideApiKey || apiKey.trim()
+
+      console.log("Making robust relationship resolution request with API key length:", keyToUse.length)
 
       const response = await fetch("/api/resolve-relationships-robust", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey.trim()}`,
+          Authorization: `Bearer ${keyToUse}`,
         },
         body: JSON.stringify({ batchSize }),
       })
@@ -400,13 +412,15 @@ export default function ResolutionDashboard() {
 
                   <Button
                     onClick={() =>
-                      promptForApiKey(() =>
+                      // Pass a function that takes the key and then calls runEntityResolutionCall
+                      promptForApiKey(async (key) =>
                         runEntityResolutionCall({
                           entityBatchSize: 100,
                           relationshipBatchSize: 100, // This is ignored by hybrid entity resolver, but kept for type consistency
                           maxBatches: entityMaxBatches,
                           useHybrid: useHybrid,
                           useLLM: useLLM,
+                          overrideApiKey: key, // Pass the key explicitly
                         }),
                       )
                     }
@@ -428,7 +442,8 @@ export default function ResolutionDashboard() {
 
                   <Button
                     onClick={() =>
-                      promptForApiKey(() =>
+                      // Pass a function that takes the key and then calls runEntityResolutionCall
+                      promptForApiKey(async (key) =>
                         runEntityResolutionCall({
                           entityBatchSize: 50,
                           relationshipBatchSize: 50,
@@ -436,6 +451,7 @@ export default function ResolutionDashboard() {
                           clearCache: true,
                           useHybrid: useHybrid,
                           useLLM: useLLM,
+                          overrideApiKey: key, // Pass the key explicitly
                         }),
                       )
                     }
@@ -479,7 +495,10 @@ export default function ResolutionDashboard() {
 
                   <Button
                     onClick={() =>
-                      promptForApiKey(() => runRobustRelationshipResolutionCall(robustRelationshipBatchSize))
+                      // Pass a function that takes the key and then calls runRobustRelationshipResolutionCall
+                      promptForApiKey(async (key) =>
+                        runRobustRelationshipResolutionCall(robustRelationshipBatchSize, key),
+                      )
                     }
                     disabled={isRunning}
                     className="bg-purple-600 text-white hover:bg-purple-700 w-full"
@@ -501,7 +520,12 @@ export default function ResolutionDashboard() {
 
                   <h3 className="text-sm font-medium text-gray-400 mb-4">Cleanup</h3>
                   <Button
-                    onClick={() => promptForApiKey(() => runEntityResolutionCall({ clearOlderThan: 7 }))}
+                    onClick={() =>
+                      // Pass a function that takes the key and then calls runEntityResolutionCall
+                      promptForApiKey(async (key) =>
+                        runEntityResolutionCall({ clearOlderThan: 7, overrideApiKey: key }),
+                      )
+                    }
                     disabled={isRunning}
                     variant="destructive"
                     className="w-full"
