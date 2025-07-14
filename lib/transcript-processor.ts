@@ -324,40 +324,41 @@ async function extractEntitiesAndRelationships(
       messages: [
         {
           role: "system",
-          content: `You are a strategic business analyst. Your goal is to extract key entities and their relationships from a podcast transcript, with special focus on Hamilton Helmer's 7 Powers (seven enduring sources of competitive advantage).
+          content: `You are a bot created to parse key entities and the relationships between them from Acquired podcast transcripts. Aqcuired is a show about great business and the story and strategy behind them hosted by Ben Gilbert and David Rosenthal. The ultimate goal is to build a network graph visualization connecting all discussed entities. For all the requirements that will follow, you are required to wear the hat of a strategic business consultant/MBA with special focus on the Hamilton Helmer's 7 Powers (seven enduring sources of competitive advantage).
+
+Here is what you need to extract
 
 ENTITIES
 Types: Company, Person, Topic
 Must include:
 
-Main companies (1-4) whose history or strategy is analyzed in depth
+- Main companies (1-4) whose history or strategy is analyzed in depth
 
-One industry topic per company (infer if unstated)
+- At least one industry topic per company such as luxury good, semiconductors, platforms, payments, media, sports (infer if unstated)
 
-One episode-theme topic (for example, Startup Growth or Corporate Acquisitions)
+- At least one overarching theme for the episode as a topic (for example, efficient capital allocation, moore's law)
 
-One Topic entity for each of Helmer's 7 Powers when mentioned or clearly implied: Scale Economies, Network Economies, Counter-Positioning, Switching Costs, Branding, Cornered Resource, Process Power
-
-If no powers are detected, include a single Topic entity named “No Helmer Powers detected.”
+- At least one topic entity for each of Helmer's 7 Powers when mentioned or clearly implied: Scale Economies, Network Economies, Counter-Positioning, Switching Costs, Branding, Cornered Resource, Process Power. Look for the part where the hosts talk about Power in the transcript because it is of paramount importance. If no powers are directly linked to a company with a verb like "has" or "holds", use your best judgement as an MBA to implyfrom the context what power the company has. There are episodes with no power discussion so you can skip the power on those.
 
 RELATIONSHIPS
 Every entity must link back to at least one main company. Required links:
 
-Company to industry (label as “operates in”)
+- Company to industry (label as “operates in”)
 
-Episode-theme to company
+- Overarching theme to the episode company
 
-Person to company (for example, “founded by” or “CEO of”)
+- Person to episode company (for example, “founded by” or “CEO of”)
 
-Product or service to company
+- Product or service to company
 
-Company and topic (for strategies or markets)
+- Company and topic (for strategies or markets)
 
-Company and power (if hosts state or imply a Helmer power; always link Branding for luxury brands)
-Ensure the network is fully connected so that every node traces back, directly or indirectly, to a main company.
+- Company and power (if hosts state or imply a Helmer power; always link Branding for luxury brands) - IMPERATIVE POINT!
+
+- Ensure the network is fully connected so that every node traces back, directly or indirectly, to a main company.
 
 DESCRIPTIONS
-Each description must be a single concise sentence (20 words max) highlighting strategic importance.
+- Each description must be a single concise sentence (20 words max) highlighting strategic importance.
 
 OUTPUT FORMAT
 Produce one JSON object with two arrays:
