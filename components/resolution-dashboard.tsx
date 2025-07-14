@@ -592,77 +592,77 @@ export default function ResolutionDashboard() {
                       </div>
                     </div>
                   )}
+
+                  {/* Robust Relationship Results */}
+                  {robustResult && (
+                    <div className="bg-gray-800 p-4 rounded-md mt-4">
+                      <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center">
+                        <GitMerge className="mr-2 h-4 w-4" />
+                        Robust Relationship Resolution Results
+                      </h3>
+
+                      <dl className="space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <dt className="text-xs text-gray-500">Relationships Processed</dt>
+                            <dd className="text-lg font-mono">{robustResult.processed}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs text-gray-500">Relationships Created</dt>
+                            <dd className="text-lg font-mono text-green-400">{robustResult.created}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs text-gray-500">Relationships Skipped</dt>
+                            <dd className="text-lg font-mono text-yellow-400">{robustResult.skipped}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs text-gray-500">Errors</dt>
+                            <dd className="text-lg font-mono text-red-400">{robustResult.errors}</dd>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-gray-700">
+                          <dt className="text-xs text-gray-500 mb-1">Success Rate</dt>
+                          <dd className="text-lg font-mono">
+                            {robustResult.created + robustResult.skipped > 0
+                              ? `${((robustResult.created / (robustResult.created + robustResult.skipped)) * 100).toFixed(1)}%`
+                              : "0%"}
+                          </dd>
+                        </div>
+                      </dl>
+
+                      {/* Detailed Results */}
+                      {robustResult.details && robustResult.details.length > 0 && (
+                        <div className="mt-4">
+                          <h4 className="text-xs font-medium text-gray-400 mb-2">Detailed Results (Top 10)</h4>
+                          <div className="space-y-2 max-h-60 overflow-y-auto">
+                            {robustResult.details.slice(0, 10).map((detail, index) => (
+                              <div key={index} className="bg-gray-900 p-3 rounded text-sm">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-blue-400">"{detail.source}"</span>
+                                  <span className="text-gray-500 mx-2">→</span>
+                                  <span className="text-green-400">"{detail.target}"</span>
+                                  <span className="text-xs text-gray-500 ml-2">
+                                    {(detail.confidence * 100).toFixed(0)}%
+                                  </span>
+                                </div>
+                                <div className="text-xs text-gray-400">{detail.result}</div>
+                              </div>
+                            ))}
+                            {robustResult.details.length > 10 && (
+                              <div className="text-xs text-gray-500 text-center py-2">
+                                ... and {robustResult.details.length - 10} more results
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="bg-gray-800 p-4 rounded-md text-center text-gray-500">
                   No resolution has been run yet. Go to the Actions tab to run a resolution.
-                </div>
-              )}
-
-              {/* Robust Relationship Results */}
-              {robustResult && (
-                <div className="bg-gray-800 p-4 rounded-md mt-4">
-                  <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center">
-                    <GitMerge className="mr-2 h-4 w-4" />
-                    Robust Relationship Resolution Results
-                  </h3>
-
-                  <dl className="space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <dt className="text-xs text-gray-500">Relationships Processed</dt>
-                        <dd className="text-lg font-mono">{robustResult.processed}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Relationships Created</dt>
-                        <dd className="text-lg font-mono text-green-400">{robustResult.created}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Relationships Skipped</dt>
-                        <dd className="text-lg font-mono text-yellow-400">{robustResult.skipped}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Errors</dt>
-                        <dd className="text-lg font-mono text-red-400">{robustResult.errors}</dd>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 border-t border-gray-700">
-                      <dt className="text-xs text-gray-500 mb-1">Success Rate</dt>
-                      <dd className="text-lg font-mono">
-                        {robustResult.created + robustResult.skipped > 0
-                          ? `${((robustResult.created / (robustResult.created + robustResult.skipped)) * 100).toFixed(1)}%`
-                          : "0%"}
-                      </dd>
-                    </div>
-                  </dl>
-
-                  {/* Detailed Results */}
-                  {robustResult.details && robustResult.details.length > 0 && (
-                    <div className="mt-4">
-                      <h4 className="text-xs font-medium text-gray-400 mb-2">Detailed Results (Top 10)</h4>
-                      <div className="space-y-2 max-h-60 overflow-y-auto">
-                        {robustResult.details.slice(0, 10).map((detail, index) => (
-                          <div key={index} className="bg-gray-900 p-3 rounded text-sm">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-blue-400">"{detail.source}"</span>
-                              <span className="text-gray-500 mx-2">→</span>
-                              <span className="text-green-400">"{detail.target}"</span>
-                              <span className="text-xs text-gray-500 ml-2">
-                                {(detail.confidence * 100).toFixed(0)}%
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-400">{detail.result}</div>
-                          </div>
-                        ))}
-                        {robustResult.details.length > 10 && (
-                          <div className="text-xs text-gray-500 text-center py-2">
-                            ... and {robustResult.details.length - 10} more results
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </TabsContent>

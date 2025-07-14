@@ -1,332 +1,226 @@
 import { neon } from "@neondatabase/serverless"
-import { v4 as uuidv4 } from "uuid"
 import { getStagedRelationships, markRelationshipsAsProcessed } from "./staging-store"
-import NodeCache from "node-cache"
+import { createOrUpdateConnection } from "./db"
 
+// Create a SQL client using the DATABASE_URL environment variable
 const sql = neon(process.env.DATABASE_URL!)
-const entityLookupCache = new NodeCache({ stdTTL: 1800, checkperiod: 120 })
 
 interface EntityMatch {
   id: string
   name: string
   type: string
   confidence: number
-  matchStrategy: string
+  matchReason: string
 }
 
-interface RelationshipCandidate {
-  sourceMatches: EntityMatch[]
-  targetMatches: EntityMatch[]
-  originalSource: string
-  originalTarget: string
-  description: string
-  episodeId: string
-}
-
-// Enhanced entity finder that tries EVERYTHING
-async function findAllEntityMatches(name: string): Promise<EntityMatch[]> {
-  const cacheKey = `all_matches:${name}`
-  const cached = entityLookupCache.get<EntityMatch[]>(cacheKey)
-  if (cached) return cached
-
-  const matches: EntityMatch[] = []
-  const normalizedName = normalizeEntityName(name)
-  const alternatives = generateAlternativeNames(name)
-
-  console.log(`🔍 Finding matches for "${name}" with ${alternatives.length} alternatives`)
-
-  // Strategy 1: Exact matches (highest confidence)
-  for (const alt of alternatives) {
-    const exactMatches = await sql`
-      SELECT id, name, type, description
-      FROM "Entity"
-      WHERE LOWER(name) = ${alt.toLowerCase()}
-    `
-
-    for (const match of exactMatches) {
-      matches.push({
-        id: match.id,
-        name: match.name,
-        type: match.type,
-        confidence: 0.95,
-        matchStrategy: "exact",
-      })
-    }
-  }
-
-  // Strategy 2: Normalized matches
-  const normalizedMatches = await sql`
-    SELECT id, name, type, description, normalized_name
-    FROM "Entity"
-    WHERE normalized_name = ${normalizedName}
-  `
-
-  for (const match of normalizedMatches) {
-    if (!matches.find((m) => m.id === match.id)) {
-      matches.push({
-        id: match.id,
-        name: match.name,
-        type: match.type,
-        confidence: 0.9,
-        matchStrategy: "normalized",
-      })
-    }
-  }
-
-  // Strategy 3: Fuzzy matches (with multiple thresholds)
-  const fuzzyMatches = await sql`
-    SELECT id, name, type, description,
-           similarity(LOWER(name), ${name.toLowerCase()}) as sim_score
-    FROM "Entity"
-    WHERE similarity(LOWER(name), ${name.toLowerCase()}) > 0.4
-    ORDER BY sim_score DESC
-    LIMIT 10
-  `
-
-  for (const match of fuzzyMatches) {
-    if (!matches.find((m) => m.id === match.id)) {
-      matches.push({
-        id: match.id,
-        name: match.name,
-        type: match.type,
-        confidence: Number(match.sim_score),
-        matchStrategy: "fuzzy",
-      })
-    }
-  }
-
-  // Strategy 4: Containment matches
-  for (const alt of alternatives) {
-    const containmentMatches = await sql`
-      SELECT id, name, type, description
-      FROM "Entity"
-      WHERE LOWER(name) LIKE ${`%${alt.toLowerCase()}%`}
-         OR ${alt.toLowerCase()} LIKE CONCAT('%', LOWER(name), '%')
-      LIMIT 5
-    `
-
-    for (const match of containmentMatches) {
-      if (!matches.find((m) => m.id === match.id)) {
-        matches.push({
-          id: match.id,
-          name: match.name,
-          type: match.type,
-          confidence: 0.7,
-          matchStrategy: "containment",
-        })
-      }
-    }
-  }
-
-  // Sort by confidence and remove duplicates
-  const uniqueMatches = matches.sort((a, b) => b.confidence - a.confidence).slice(0, 5) // Keep top 5 matches
-
-  entityLookupCache.set(cacheKey, uniqueMatches)
-  console.log(`  Found ${uniqueMatches.length} matches for "${name}"`)
-
-  return uniqueMatches
-}
-
-// Cross-validation: Check if a relationship makes business sense
-function validateRelationship(
-  sourceMatch: EntityMatch,
-  targetMatch: EntityMatch,
-  description: string,
-): { valid: boolean; confidence: number; reason: string } {
-  // Business logic validation rules
-  const validationRules = [
-    // CEO/Founder relationships
-    {
-      condition: (s: EntityMatch, t: EntityMatch, desc: string) =>
-        s.type === "Person" &&
-        t.type === "Company" &&
-        (desc.toLowerCase().includes("ceo") ||
-          desc.toLowerCase().includes("founder") ||
-          desc.toLowerCase().includes("founded")),
-      confidence: 0.9,
-      reason: "Person-Company leadership relationship",
-    },
-
-    // Company-Industry relationships
-    {
-      condition: (s: EntityMatch, t: EntityMatch, desc: string) =>
-        s.type === "Company" &&
-        t.type === "Topic" &&
-        (t.name.toLowerCase().includes("industry") || desc.toLowerCase().includes("operates in")),
-      confidence: 0.85,
-      reason: "Company-Industry relationship",
-    },
-
-    // 7 Powers relationships
-    {
-      condition: (s: EntityMatch, t: EntityMatch, desc: string) =>
-        s.type === "Company" &&
-        t.type === "Topic" &&
-        [
-          "scale economies",
-          "network economies",
-          "counter-positioning",
-          "switching costs",
-          "branding",
-          "cornered resource",
-          "process power",
-        ].some((power) => t.name.toLowerCase().includes(power.toLowerCase())),
-      confidence: 0.8,
-      reason: "Company-Strategic Power relationship",
-    },
-
-    // Product-Company relationships
-    {
-      condition: (s: EntityMatch, t: EntityMatch, desc: string) =>
-        s.type === "Company" &&
-        t.type === "Topic" &&
-        (desc.toLowerCase().includes("developed") ||
-          desc.toLowerCase().includes("created") ||
-          desc.toLowerCase().includes("product")),
-      confidence: 0.75,
-      reason: "Company-Product relationship",
-    },
-
-    // General same-episode co-mention
-    {
-      condition: () => true, // Always applies as fallback
-      confidence: 0.6,
-      reason: "Co-mentioned in same episode",
-    },
-  ]
-
-  for (const rule of validationRules) {
-    if (rule.condition(sourceMatch, targetMatch, description)) {
-      return {
-        valid: true,
-        confidence: rule.confidence,
-        reason: rule.reason,
-      }
-    }
-  }
-
-  return {
-    valid: false,
-    confidence: 0.3,
-    reason: "No clear business relationship pattern",
-  }
-}
-
-// Smart relationship resolver with cross-validation
-async function resolveRelationshipSmart(
-  sourceName: string,
-  targetName: string,
-  description: string,
-  episodeId: string,
-): Promise<{
-  success: boolean
+interface RelationshipResolutionResult {
+  source: string
+  target: string
+  result: "created" | "skipped" | "error"
+  reason: string
   confidence: number
   sourceEntity?: EntityMatch
   targetEntity?: EntityMatch
-  reason: string
-}> {
-  // Get all possible matches for both entities
-  const sourceMatches = await findAllEntityMatches(sourceName)
-  const targetMatches = await findAllEntityMatches(targetName)
+  error?: string
+}
 
-  if (sourceMatches.length === 0) {
+// Enhanced entity matching with cross-validation
+async function findEntityWithCrossValidation(entityName: string): Promise<EntityMatch | null> {
+  const normalizedName = entityName.toLowerCase().trim()
+
+  // Strategy 1: Exact name match (highest confidence)
+  const exactMatches = await sql`
+    SELECT id, name, type, 'exact' as match_type
+    FROM "Entity"
+    WHERE LOWER(name) = ${normalizedName}
+    LIMIT 1
+  `
+
+  if (exactMatches.length > 0) {
     return {
-      success: false,
-      confidence: 0,
-      reason: `No matches found for source entity: "${sourceName}"`,
+      id: exactMatches[0].id,
+      name: exactMatches[0].name,
+      type: exactMatches[0].type,
+      confidence: 0.95,
+      matchReason: "Exact name match",
     }
   }
 
-  if (targetMatches.length === 0) {
+  // Strategy 2: Normalized name match
+  const normalizedMatches = await sql`
+    SELECT id, name, type, normalized_name
+    FROM "Entity"
+    WHERE normalized_name = ${normalizedName
+      .replace(/[^\w\s]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()}
+    LIMIT 1
+  `
+
+  if (normalizedMatches.length > 0) {
     return {
-      success: false,
-      confidence: 0,
-      reason: `No matches found for target entity: "${targetName}"`,
+      id: normalizedMatches[0].id,
+      name: normalizedMatches[0].name,
+      type: normalizedMatches[0].type,
+      confidence: 0.9,
+      matchReason: "Normalized name match",
     }
   }
 
-  // Try all combinations and find the best one
-  let bestMatch: {
-    source: EntityMatch
-    target: EntityMatch
-    totalConfidence: number
-    validation: { valid: boolean; confidence: number; reason: string }
-  } | null = null
+  // Strategy 3: Fuzzy matching with similarity
+  const fuzzyMatches = await sql`
+    SELECT id, name, type, normalized_name,
+           similarity(LOWER(name), ${normalizedName}) as name_sim,
+           similarity(normalized_name, ${normalizedName
+             .replace(/[^\w\s]/g, "")
+             .replace(/\s+/g, " ")
+             .trim()}) as norm_sim
+    FROM "Entity"
+    WHERE similarity(LOWER(name), ${normalizedName}) > 0.6
+       OR similarity(normalized_name, ${normalizedName
+         .replace(/[^\w\s]/g, "")
+         .replace(/\s+/g, " ")
+         .trim()}) > 0.6
+    ORDER BY GREATEST(name_sim, norm_sim) DESC
+    LIMIT 1
+  `
 
-  for (const sourceMatch of sourceMatches) {
-    for (const targetMatch of targetMatches) {
-      // Validate this relationship
-      const validation = validateRelationship(sourceMatch, targetMatch, description)
+  if (fuzzyMatches.length > 0) {
+    const match = fuzzyMatches[0]
+    const confidence = Math.max(match.name_sim || 0, match.norm_sim || 0)
 
-      // Calculate total confidence (entity matching + business logic validation)
-      const totalConfidence = (sourceMatch.confidence + targetMatch.confidence + validation.confidence) / 3
+    if (confidence > 0.75) {
+      return {
+        id: match.id,
+        name: match.name,
+        type: match.type,
+        confidence,
+        matchReason: `Fuzzy match (${(confidence * 100).toFixed(1)}% similarity)`,
+      }
+    }
+  }
 
-      if (!bestMatch || totalConfidence > bestMatch.totalConfidence) {
-        bestMatch = {
-          source: sourceMatch,
-          target: targetMatch,
-          totalConfidence,
-          validation,
+  // Strategy 4: Business logic matching for known patterns
+  const businessLogicMatch = await applyBusinessLogicMatching(entityName)
+  if (businessLogicMatch) {
+    return businessLogicMatch
+  }
+
+  return null
+}
+
+// Apply business logic for known entity patterns
+async function applyBusinessLogicMatching(entityName: string): Promise<EntityMatch | null> {
+  const lowerName = entityName.toLowerCase().trim()
+
+  // Known CEO -> Company mappings
+  const ceoCompanyMappings: Record<string, string> = {
+    "morris chang": "TSMC",
+    "jensen huang": "NVIDIA",
+    "satya nadella": "Microsoft",
+    "tim cook": "Apple",
+    "elon musk": "Tesla",
+    "jeff bezos": "Amazon",
+    "mark zuckerberg": "Meta",
+    "sundar pichai": "Google",
+  }
+
+  // Check if this is a known CEO
+  for (const [ceo, company] of Object.entries(ceoCompanyMappings)) {
+    if (lowerName.includes(ceo)) {
+      // Try to find the company
+      const companyMatches = await sql`
+        SELECT id, name, type
+        FROM "Entity"
+        WHERE type = 'Company' 
+        AND (LOWER(name) LIKE ${`%${company.toLowerCase()}%`} OR normalized_name LIKE ${`%${company.toLowerCase()}%`})
+        LIMIT 1
+      `
+
+      if (companyMatches.length > 0) {
+        return {
+          id: companyMatches[0].id,
+          name: companyMatches[0].name,
+          type: companyMatches[0].type,
+          confidence: 0.85,
+          matchReason: `Business logic: ${ceo} -> ${company}`,
         }
       }
     }
   }
 
-  if (!bestMatch || bestMatch.totalConfidence < 0.6) {
-    return {
-      success: false,
-      confidence: bestMatch?.totalConfidence || 0,
-      reason: `Low confidence match (${(bestMatch?.totalConfidence || 0).toFixed(2)}). Best: ${bestMatch?.source.name} → ${bestMatch?.target.name}`,
+  // Known brand -> concept mappings
+  const brandConceptMappings: Record<string, string[]> = {
+    rolex: ["Branding", "Luxury", "Brand"],
+    ferrari: ["Branding", "Luxury", "Brand"],
+    "louis vuitton": ["Branding", "Luxury", "Brand"],
+    "coca-cola": ["Branding", "Marketing", "Brand"],
+    nike: ["Branding", "Marketing", "Brand"],
+  }
+
+  for (const [brand, concepts] of Object.entries(brandConceptMappings)) {
+    if (lowerName.includes(brand)) {
+      // Try to find related concepts
+      for (const concept of concepts) {
+        const conceptMatches = await sql`
+          SELECT id, name, type
+          FROM "Entity"
+          WHERE type = 'Topic' 
+          AND (LOWER(name) LIKE ${`%${concept.toLowerCase()}%`} OR normalized_name LIKE ${`%${concept.toLowerCase()}%`})
+          LIMIT 1
+        `
+
+        if (conceptMatches.length > 0) {
+          return {
+            id: conceptMatches[0].id,
+            name: conceptMatches[0].name,
+            type: conceptMatches[0].type,
+            confidence: 0.8,
+            matchReason: `Business logic: ${brand} -> ${concept}`,
+          }
+        }
+      }
     }
   }
 
-  // Create the connection
-  try {
-    // Check if connection already exists
-    const existingConnection = await sql`
-      SELECT id FROM "Connection"
-      WHERE "episodeId" = ${episodeId}
-      AND "sourceEntityId" = ${bestMatch.source.id}
-      AND "targetEntityId" = ${bestMatch.target.id}
-      LIMIT 1
-    `
+  return null
+}
 
-    if (existingConnection.length === 0) {
-      const connectionId = uuidv4()
-      await sql`
-        INSERT INTO "Connection" (
-          id, 
-          "episodeId", 
-          "sourceEntityId", 
-          "targetEntityId", 
-          strength, 
-          description
-        )
-        VALUES (
-          ${connectionId},
-          ${episodeId},
-          ${bestMatch.source.id},
-          ${bestMatch.target.id},
-          1,
-          ${description}
-        )
-      `
-    }
+// Validate relationship makes business sense
+function validateRelationship(
+  sourceEntity: EntityMatch,
+  targetEntity: EntityMatch,
+  description: string,
+): { valid: boolean; reason: string; confidence: number } {
+  const desc = description.toLowerCase()
 
-    return {
-      success: true,
-      confidence: bestMatch.totalConfidence,
-      sourceEntity: bestMatch.source,
-      targetEntity: bestMatch.target,
-      reason: `Created: ${bestMatch.source.name} → ${bestMatch.target.name} (${bestMatch.validation.reason})`,
+  // Person -> Company relationships
+  if (sourceEntity.type === "Person" && targetEntity.type === "Company") {
+    if (desc.includes("ceo") || desc.includes("founder") || desc.includes("executive")) {
+      return { valid: true, reason: "Person-Company leadership relationship", confidence: 0.9 }
     }
-  } catch (error) {
-    return {
-      success: false,
-      confidence: bestMatch.totalConfidence,
-      reason: `Database error: ${error instanceof Error ? error.message : String(error)}`,
+    if (desc.includes("employee") || desc.includes("work")) {
+      return { valid: true, reason: "Person-Company employment relationship", confidence: 0.8 }
     }
   }
+
+  // Company -> Topic relationships
+  if (sourceEntity.type === "Company" && targetEntity.type === "Topic") {
+    if (desc.includes("brand") || desc.includes("marketing") || desc.includes("strategy")) {
+      return { valid: true, reason: "Company-Strategic relationship", confidence: 0.85 }
+    }
+    if (desc.includes("technology") || desc.includes("product")) {
+      return { valid: true, reason: "Company-Technology relationship", confidence: 0.8 }
+    }
+  }
+
+  // Topic -> Topic relationships
+  if (sourceEntity.type === "Topic" && targetEntity.type === "Topic") {
+    return { valid: true, reason: "Topic-Topic conceptual relationship", confidence: 0.7 }
+  }
+
+  // Default validation for other combinations
+  return { valid: true, reason: "General relationship", confidence: 0.6 }
 }
 
 // Main robust relationship resolution function
@@ -335,57 +229,103 @@ export async function resolveRelationshipsRobust(batchSize = 100): Promise<{
   created: number
   skipped: number
   errors: number
-  details: Array<{
-    source: string
-    target: string
-    result: string
-    confidence: number
-  }>
+  details: RelationshipResolutionResult[]
 }> {
+  console.log(`🔍 Starting robust relationship resolution (batch size: ${batchSize})`)
+
+  // Get unprocessed staged relationships
   const stagedRelationships = await getStagedRelationships(batchSize, false)
 
   if (stagedRelationships.length === 0) {
+    console.log("No staged relationships to process")
     return { processed: 0, created: 0, skipped: 0, errors: 0, details: [] }
   }
 
-  console.log(`🚀 Starting robust resolution of ${stagedRelationships.length} relationships`)
+  console.log(`Processing ${stagedRelationships.length} staged relationships`)
 
   let created = 0
   let skipped = 0
   let errors = 0
   const processedIds: string[] = []
-  const details: Array<{
-    source: string
-    target: string
-    result: string
-    confidence: number
-  }> = []
+  const details: RelationshipResolutionResult[] = []
 
-  for (const rel of stagedRelationships) {
+  // Process each relationship with cross-validation
+  for (const stagedRel of stagedRelationships) {
     try {
-      const result = await resolveRelationshipSmart(rel.sourceName, rel.targetName, rel.description, rel.episodeId)
+      console.log(`\n🔗 Processing: "${stagedRel.sourceName}" -> "${stagedRel.targetName}"`)
 
-      details.push({
-        source: rel.sourceName,
-        target: rel.targetName,
-        result: result.reason,
-        confidence: result.confidence,
-      })
+      // Find source entity with cross-validation
+      const sourceEntity = await findEntityWithCrossValidation(stagedRel.sourceName)
+      console.log(
+        `  📍 Source: ${sourceEntity ? `Found "${sourceEntity.name}" (${sourceEntity.confidence})` : "Not found"}`,
+      )
 
-      if (result.success) {
-        created++
-        console.log(`✅ ${rel.sourceName} → ${rel.targetName} (${result.confidence.toFixed(2)})`)
-      } else {
+      // Find target entity with cross-validation
+      const targetEntity = await findEntityWithCrossValidation(stagedRel.targetName)
+      console.log(
+        `  📍 Target: ${targetEntity ? `Found "${targetEntity.name}" (${targetEntity.confidence})` : "Not found"}`,
+      )
+
+      if (!sourceEntity || !targetEntity) {
+        const reason = `Missing entities: source=${!!sourceEntity}, target=${!!targetEntity}`
+        console.log(`  ❌ Skipped: ${reason}`)
+
+        details.push({
+          source: stagedRel.sourceName,
+          target: stagedRel.targetName,
+          result: "skipped",
+          reason,
+          confidence: 0,
+          sourceEntity: sourceEntity || undefined,
+          targetEntity: targetEntity || undefined,
+        })
         skipped++
-        console.log(`⏭️  ${rel.sourceName} → ${rel.targetName}: ${result.reason}`)
+      } else {
+        // Validate the relationship makes business sense
+        const validation = validateRelationship(sourceEntity, targetEntity, stagedRel.description)
+        console.log(`  ✅ Validation: ${validation.reason} (confidence: ${validation.confidence})`)
+
+        if (validation.valid && validation.confidence > 0.5) {
+          // Create the relationship
+          await createOrUpdateConnection(stagedRel.episodeId, sourceEntity.id, targetEntity.id, stagedRel.description)
+
+          const overallConfidence = Math.min(sourceEntity.confidence, targetEntity.confidence, validation.confidence)
+
+          console.log(`  ✅ Created relationship (confidence: ${overallConfidence})`)
+
+          details.push({
+            source: stagedRel.sourceName,
+            target: stagedRel.targetName,
+            result: "created",
+            reason: `${sourceEntity.matchReason} + ${targetEntity.matchReason} + ${validation.reason}`,
+            confidence: overallConfidence,
+            sourceEntity,
+            targetEntity,
+          })
+          created++
+        } else {
+          const reason = `Low confidence relationship: ${validation.reason} (${validation.confidence})`
+          console.log(`  ⚠️ Skipped: ${reason}`)
+
+          details.push({
+            source: stagedRel.sourceName,
+            target: stagedRel.targetName,
+            result: "skipped",
+            reason,
+            confidence: validation.confidence,
+            sourceEntity,
+            targetEntity,
+          })
+          skipped++
+        }
       }
 
-      // Mark as processed regardless of success
+      // Mark as processed
       const stagedRelRecord = await sql`
         SELECT id FROM "StagedRelationship" 
-        WHERE "sourceName" = ${rel.sourceName} 
-        AND "targetName" = ${rel.targetName} 
-        AND "episodeId" = ${rel.episodeId}
+        WHERE "sourceName" = ${stagedRel.sourceName} 
+        AND "targetName" = ${stagedRel.targetName} 
+        AND "episodeId" = ${stagedRel.episodeId}
         AND processed = false
         LIMIT 1
       `
@@ -394,67 +334,71 @@ export async function resolveRelationshipsRobust(batchSize = 100): Promise<{
         processedIds.push(stagedRelRecord[0].id)
       }
     } catch (error) {
-      console.error(`❌ Error resolving ${rel.sourceName} → ${rel.targetName}:`, error)
-      errors++
+      console.error(`❌ Error processing relationship ${stagedRel.sourceName} -> ${stagedRel.targetName}:`, error)
 
       details.push({
-        source: rel.sourceName,
-        target: rel.targetName,
-        result: `Error: ${error instanceof Error ? error.message : String(error)}`,
+        source: stagedRel.sourceName,
+        target: stagedRel.targetName,
+        result: "error",
+        reason: "Processing error",
         confidence: 0,
+        error: error instanceof Error ? error.message : "Unknown error",
       })
+      errors++
     }
   }
 
-  // Mark all as processed
+  // Mark all processed relationships
   if (processedIds.length > 0) {
     await markRelationshipsAsProcessed(processedIds)
+    console.log(`\n📝 Marked ${processedIds.length} relationships as processed`)
   }
 
-  console.log(`✅ Robust resolution complete: ${created} created, ${skipped} skipped, ${errors} errors`)
-
-  return {
+  const summary = {
     processed: processedIds.length,
     created,
     skipped,
     errors,
     details,
   }
+
+  console.log(`\n🎯 Robust resolution complete:`)
+  console.log(`   📊 Processed: ${summary.processed}`)
+  console.log(`   ✅ Created: ${summary.created}`)
+  console.log(`   ⚠️ Skipped: ${summary.skipped}`)
+  console.log(`   ❌ Errors: ${summary.errors}`)
+  console.log(
+    `   📈 Success rate: ${summary.processed > 0 ? ((summary.created / summary.processed) * 100).toFixed(1) : 0}%`,
+  )
+
+  return summary
 }
 
-// Helper functions (reuse from existing code)
-function normalizeEntityName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^\w\s]/g, "")
-    .replace(/\s+/g, " ")
-    .replace(/\b(company|corp|corporation|inc|incorporated|ltd|limited|llc|co|the)\b/g, "")
-    .trim()
-}
+// Function to get relationship resolution statistics
+export async function getRelationshipResolutionStats(): Promise<{
+  totalPending: number
+  totalProcessed: number
+  recentlyCreated: number
+  commonSkipReasons: Array<{ reason: string; count: number }>
+}> {
+  const pendingCount = await sql`
+    SELECT COUNT(*) as count FROM "StagedRelationship" WHERE processed = false
+  `
 
-function generateAlternativeNames(name: string): string[] {
-  const alternatives = [name]
-  const normalized = normalizeEntityName(name)
+  const processedCount = await sql`
+    SELECT COUNT(*) as count FROM "StagedRelationship" WHERE processed = true
+  `
 
-  if (normalized !== name.toLowerCase()) {
-    alternatives.push(normalized)
+  // Get recent connections (last 24 hours)
+  const recentConnections = await sql`
+    SELECT COUNT(*) as count FROM "Connection" 
+    WHERE "createdAt" > NOW() - INTERVAL '24 hours'
+  `
+
+  return {
+    totalPending: Number(pendingCount[0]?.count || 0),
+    totalProcessed: Number(processedCount[0]?.count || 0),
+    recentlyCreated: Number(recentConnections[0]?.count || 0),
+    commonSkipReasons: [], // Could be enhanced to track skip reasons
   }
-
-  // Add known abbreviations
-  const abbreviationMap: Record<string, string[]> = {
-    "morris chang": ["morris c chang", "morris c. chang"],
-    "taiwan semiconductor manufacturing company": ["tsmc", "taiwan semiconductor"],
-    tsmc: ["taiwan semiconductor manufacturing company"],
-    "apple inc": ["apple", "apple computer"],
-    apple: ["apple inc", "apple computer"],
-    rolex: ["rolex sa", "rolex watch company"],
-    branding: ["brand power", "brand strength", "brand equity"],
-  }
-
-  const lowerName = name.toLowerCase()
-  if (abbreviationMap[lowerName]) {
-    alternatives.push(...abbreviationMap[lowerName])
-  }
-
-  return [...new Set(alternatives)]
 }
