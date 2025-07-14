@@ -176,7 +176,7 @@ export default function ResolutionDashboard() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey.trim()}`,
         },
         body: JSON.stringify(params),
       })
@@ -219,7 +219,7 @@ export default function ResolutionDashboard() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey.trim()}`,
         },
         body: JSON.stringify({ batchSize }),
       })

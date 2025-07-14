@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
   try {
     // Check for API key authentication
     const authHeader = request.headers.get("authorization")
-    const expectedKey = process.env.INTERNAL_API_KEY
+    const expectedKey = process.env.INTERNAL_API_KEY?.trim()
 
     console.log("POST /api/resolve-relationships-robust - Auth check:")
     console.log("- Auth header present:", !!authHeader)
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
   try {
     // Check for API key authentication
     const authHeader = request.headers.get("authorization")
-    const expectedKey = process.env.INTERNAL_API_KEY
+    const expectedKey = process.env.INTERNAL_API_KEY?.trim()
 
     if (!expectedKey) {
       console.error("INTERNAL_API_KEY environment variable not set")
