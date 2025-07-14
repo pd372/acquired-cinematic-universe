@@ -133,7 +133,7 @@ export default function ResolutionDashboard() {
   function promptForApiKey(action: () => Promise<void>) {
     setPendingAction(() => action)
     setShowApiKeyDialog(true)
-    setApiKey("")
+    // Do NOT clear apiKey here, let it persist if already entered
     setError(null) // Clear any previous errors
   }
 
@@ -153,7 +153,7 @@ export default function ResolutionDashboard() {
       console.error("Operation error:", err)
     } finally {
       setPendingAction(null)
-      setApiKey("")
+      // REMOVED: setApiKey(""); // This line was clearing the API key after execution
     }
   }
 
