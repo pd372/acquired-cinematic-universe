@@ -48,7 +48,7 @@ Identify and categorize entities into ONLY these three types:
 For each entity, provide a brief description that highlights strategic importance when applicable.
 
 REQUIRED ENTITIES:
-- ALWAYS include at least one "Topic" entity for the primary industry of each company discussed (e.g., "Semiconductor Industry", "Social Media", "E-commerce")
+- ALWAYS include at least one "Topic" entity for the primary industry of each company discussed (e.g., "Semiconductor Industry", "Social Media", "E-commerce"). If the industry is not explicitly stated, you MUST infer the most relevant industry based on the company's nature and business model.
 - ALWAYS include at least one "Topic" entity for the overarching theme of the episode (e.g., "Corporate Acquisitions", "Startup Growth", "Tech Innovation")
 - ALWAYS create "Topic" entities for EACH of Hamilton Helmer's 7 Powers that are discussed in relation to ANY company:
   * Scale Economies - Declining unit costs with increased production
@@ -59,6 +59,12 @@ REQUIRED ENTITIES:
   * Cornered Resource - Preferential access to a coveted asset
   * Process Power - Embedded company organization that enables lower costs
 
+PART 2.5: SCAN FOR HAMILTON HELMERS 7 POWERS
+- CRITICAL: Before categorizing, meticulously scan the entire transcript, especially sections discussing competitive advantages, for any of Hamilton Helmer's 7 Powers.  
+- If *any* of these powers are mentioned or clearly implied in relation to a company's business model or competitive advantage, they *must* be flagged as a 'Topic' entity.  
+- If the host explicitly attributes a power to a company, note that immediately so you don't miss it in later steps.  
+
+
 PART 3: RELATIONSHIPS
 Create meaningful relationships between the entities you extracted. Ensure ALL entities are connected to the main company(ies) either directly or through other entities.
 
@@ -67,21 +73,27 @@ For each relationship, include:
 2. The target entity name
 3. A brief description of how they are related (e.g., "founded by", "acquired", "developed", "invested in")
 
-REQUIRED RELATIONSHIPS:
-- Connect each company to its industry with a relationship (e.g., "operates in", "is part of")
+These are the REQUIRED RELATIONHIPS in each episode:
+- Connect each company to its inferred or explicitly mentioned industry with a relationship (e.g., "operates in", "is part of", "is active in")
 - Connect the episode theme to the main company(ies)
 - Connect each person to their respective company(ies)
 - Connect products/services to their parent companies
 - Connect each main company to relevant topics discussed in the episode
-- CRITICAL: For EACH of Hamilton Helmer's 7 Powers mentioned in the transcript:
-  * If the hosts explicitly state a company has a specific power, create a relationship between that company and that power
-  * If the hosts discuss a power but don't clearly attribute it to a company, connect that power to the main company with a description like "Discussed in relation to [Company]'s business model"
-  * Even if the hosts are just explaining the concept, still create the power entity and connect it to the main company with a description that accurately reflects the context
+- CRITICAL: For EACH of Hamilton Helmer's 7 Powers:
+  * If the hosts explicitly state a company has a specific power, create a relationship between that company and that power.
+  * If the hosts discuss a power in relation to a company's business model, competitive advantage, or strategy, **even if not explicitly attributed with a verb like 'has' or 'possesses', you MUST infer the connection and create a relationship.** This is paramount for capturing strategic insights.
+  * **Special Rule for "Branding"**: For companies that are luxury brands or operate in the luxury goods industry, if "Branding" is discussed as a competitive advantage or a significant factor in their business, **you MUST create a relationship between that company and the 'Branding' topic, even if not explicitly stated as 'has Branding Power'.**
+  * Even if the hosts are just explaining the concept of a power, still create the power entity and connect it to the main company with a description that accurately reflects the context.
 
 NETWORK COMPLETENESS:
 - Ensure that EVERY entity is connected to at least one other entity
 - Ensure that there is a path from EVERY entity to at least one of the main companies (directly or indirectly)
 - Create logical connections between related entities even if not explicitly stated (e.g., a founder should be connected to their company)
+
+PART 3.5: Connecting the 7 powers to the company
+This section is ABSOLUTELY CRITICAL. You MUST parse through it with extreme care and precision. Your primary goal here is to identify and connect every single instance where a company's competitive advantage or business model is discussed in terms of Hamilton Helmer's 7 Powers. Do NOT miss any implied or subtle associations. If the discussion clearly points to a power, create the connection.
+
+PART 4: THE OUTPUT
 
 Format the output as a JSON object with two arrays:
 1. "entities" - Array of entity objects
@@ -155,7 +167,7 @@ Example response format:
   ]
 }
 
-IMPORTANT GUIDELINES:
+Summary:
 - First identify the main company or companies that are the focus of the episode
 - Analyze the transcript through a strategic management lens, identifying key business strategies, competitive advantages, and market dynamics
 - Only include entities that are significant to the episode's content
@@ -164,8 +176,8 @@ IMPORTANT GUIDELINES:
 - Products like "iPhone", "Windows", or "MyChart" should be categorized as "Topic"
 - Industries like "Healthcare", "Semiconductors", or "Finance" should be categorized as "Topic"
 - Technologies like "AI", "Blockchain", or "Cloud Computing" should be categorized as "Topic"
-- ALWAYS include industry topics for companies and an overarching theme topic for the episode
-- ALWAYS create entities for any of Hamilton Helmer's 7 Powers mentioned and connect them to relevant companies`,
+- ALWAYS include industry topics for companies and an overarching theme topic for the episode. Infer industry if not explicit.
+- ALWAYS create entities for any of Hamilton Helmer's 7 Powers mentioned. Infer connections to relevant companies if implied by discussion of their business model or competitive advantage, especially for 'Branding' in relevant industries.`,
         },
         {
           role: "user",

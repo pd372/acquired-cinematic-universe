@@ -234,7 +234,6 @@ function extractRelevantTranscriptContent(fullTranscript: string): string {
     "episode transcript",
     "begin transcript",
     "start of transcript",
-    "transcript start",
     "welcome to acquired",
     "welcome to season",
     "welcome back to acquired",
@@ -325,158 +324,56 @@ async function extractEntitiesAndRelationships(
       messages: [
         {
           role: "system",
-          content: `You are a strategic business analyst specializing in identifying key entities, relationships, and competitive advantages from business discussions. Your task is to extract entities and their relationships from the following podcast transcript, with special attention to Hamilton Helmer's 7 Powers framework.
+          content: `You are a strategic business analyst. Your goal is to extract key entities and their relationships from a podcast transcript, with special focus on Hamilton Helmer's 7 Powers (seven enduring sources of competitive advantage).
 
-EPISODE TITLE: "${episodeTitle}"
+ENTITIES
+Types: Company, Person, Topic
+Must include:
 
-PART 1: IDENTIFY THE MAIN COMPANIES
-First, identify the 1-3 main companies that are the primary focus of this episode. These are the companies whose history, strategy, or business model is being analyzed in depth.
+Main companies (1-4) whose history or strategy is analyzed in depth
 
-PART 2: ENTITIES
-Identify and categorize entities into ONLY these three types:
+One industry topic per company (infer if unstated)
 
-1. "Company" - Business organizations, corporations, startups
-2. "Person" - Individual people like founders, CEOs, investors, historical figures
-3. "Topic" - Everything else including products, technologies, concepts, industries, themes, events, strategic frameworks
+One episode-theme topic (for example, Startup Growth or Corporate Acquisitions)
 
-For each entity, provide a brief description that highlights strategic importance when applicable.
+One Topic entity for each of Helmer's 7 Powers when mentioned or clearly implied: Scale Economies, Network Economies, Counter-Positioning, Switching Costs, Branding, Cornered Resource, Process Power
 
-REQUIRED ENTITIES:
-- ALWAYS include at least one "Topic" entity for the primary industry of each company discussed (e.g., "Semiconductor Industry", "Social Media", "E-commerce")
-- ALWAYS include at least one "Topic" entity for the overarching theme of the episode (e.g., "Corporate Acquisitions", "Startup Growth", "Tech Innovation")
-- ALWAYS create "Topic" entities for EACH of Hamilton Helmer's 7 Powers that are discussed in relation to ANY company:
-  * Scale Economies - Declining unit costs with increased production
-  * Network Economies - Value increases as customer base grows
-  * Counter-Positioning - New position that incumbent can't copy without harming their business
-  * Switching Costs - Customer's value loss when switching to an alternative
-  * Branding - Habitual purchase based on trust beyond utilitarian value
-  * Cornered Resource - Preferential access to a coveted asset
-  * Process Power - Embedded company organization that enables lower costs
+If no powers are detected, include a single Topic entity named “No Helmer Powers detected.”
 
-PART 2.5: SCAN FOR HAMILTON HELMERS 7 POWERS
-- Before you categorize entities, search the entire transcript for any of these exact phrases (or common variants):  
-  • “Scale Economies”  
-  • “Network Economies”  
-  • “Counter-Positioning”  
-  • “Switching Costs”  
-  • “Branding”  
-  • “Cornered Resource”  
-  • “Process Power”  
-- If you find any mention, flag it as a “Topic” entity (even if it's just the host reciting the definition).  
-- If the host explicitly attributes a power to a company, note that immediately so you don't miss it in later steps.  
+RELATIONSHIPS
+Every entity must link back to at least one main company. Required links:
 
+Company to industry (label as “operates in”)
 
-PART 3: RELATIONSHIPS
-Create meaningful relationships between the entities you extracted. Ensure ALL entities are connected to the main company(ies) either directly or through other entities.
+Episode-theme to company
 
-For each relationship, include:
-1. The source entity name
-2. The target entity name
-3. A brief description of how they are related (e.g., "founded by", "acquired", "developed", "invested in")
+Person to company (for example, “founded by” or “CEO of”)
 
-These are the REQUIRED RELATIONHIPS in each episode:
-- Connect each company to its industry with a relationship (e.g., "operates in", "is part of")
-- Connect the episode theme to the main company(ies)
-- Connect each person to their respective company(ies)
-- Connect products/services to their parent companies
-- Connect each main company to relevant topics discussed in the episode
-- The most important connection of all is to figure out: For EACH of Hamilton Helmer's 7 Powers mentioned in the transcript:
-  * If the hosts explicitly state a company has a specific power, create a relationship between that company and that power
-  * If the hosts discuss a power but don't clearly attribute it to a company, then do not create any connection unless you see that they clearly indicated that the company to posseses it
+Product or service to company
 
-NETWORK COMPLETENESS:
-- Ensure that EVERY entity is connected to at least one other entity
-- Ensure that there is a path from EVERY entity to at least one of the main companies (directly or indirectly)
-- Create logical connections between related entities even if not explicitly stated (e.g., a founder should be connected to their company)
+Company and topic (for strategies or markets)
 
-PART 3.5: Connecting the 7 powers to the company
-The 7 powers part of the podcast is a CRITICAL part so you must read through it extremely carefully! You must try to understand the hosts' assessment on the powers the company analyzed has. It might be mentioned in a subtle way so pay 1000x more attention to find out if any of the 7 powers can be associated with the company and create the needed association.
+Company and power (if hosts state or imply a Helmer power; always link Branding for luxury brands)
+Ensure the network is fully connected so that every node traces back, directly or indirectly, to a main company.
 
-PART 4: THE OUTPUT
+DESCRIPTIONS
+Each description must be a single concise sentence (20 words max) highlighting strategic importance.
 
-Format the output as a JSON object with two arrays:
-1. "entities" - Array of entity objects
-2. "relationships" - Array of relationship objects
+OUTPUT FORMAT
+Produce one JSON object with two arrays:
+entities - each object has name, type, description
+relationships - each object has source, target, description
 
-Example response format:
+Example:
 {
-  "entities": [
-    {
-      "name": "Microsoft",
-      "type": "Company",
-      "description": "Technology company founded in 1975 that built a dominant position in operating systems"
-    },
-    {
-      "name": "Bill Gates",
-      "type": "Person",
-      "description": "Co-founder of Microsoft who drove its early strategic direction"
-    },
-    {
-      "name": "Windows",
-      "type": "Topic",
-      "description": "Operating system developed by Microsoft that became industry standard"
-    },
-    {
-      "name": "Software Industry",
-      "type": "Topic",
-      "description": "Industry focused on developing and distributing software products"
-    },
-    {
-      "name": "Tech Pioneers",
-      "type": "Topic",
-      "description": "Overarching theme about early technology innovators and their impact"
-    },
-    {
-      "name": "Network Economies",
-      "type": "Topic",
-      "description": "One of Hamilton Helmer's 7 Powers where a product becomes more valuable as more people use it"
-    }
-  ],
-  "relationships": [
-    {
-      "source": "Bill Gates",
-      "target": "Microsoft",
-      "description": "Co-founded Microsoft in 1975 and shaped its aggressive business strategy"
-    },
-    {
-      "source": "Microsoft",
-      "target": "Windows",
-      "description": "Developed the Windows operating system as its flagship product"
-    },
-    {
-      "source": "Microsoft",
-      "target": "Software Industry",
-      "description": "Operates in the software industry as a dominant player"
-    },
-    {
-      "source": "Tech Pioneers",
-      "target": "Microsoft",
-      "description": "Microsoft is considered a tech pioneer, which is a key theme of this episode"
-    },
-    {
-      "source": "Microsoft",
-      "target": "Network Economies",
-      "description": "Leveraged network economies as users became locked into the Windows ecosystem"
-    },
-    {
-      "source": "Windows",
-      "target": "Network Economies",
-      "description": "Windows demonstrated network effects as more developers created software for the platform"
-    }
-  ]
-}
-
-Summary:
-- First identify the main company or companies that are the focus of the episode
-- Analyze the transcript through a strategic management lens, identifying key business strategies, competitive advantages, and market dynamics
-- Only include entities that are significant to the episode's content
-- Create relationships that form a connected network - every entity should be connected to at least one other entity
-- Ensure there is a path from every entity to at least one main company
-- Products like "iPhone", "Windows", or "MyChart" should be categorized as "Topic"
-- Industries like "Healthcare", "Semiconductors", or "Finance" should be categorized as "Topic"
-- Technologies like "AI", "Blockchain", or "Cloud Computing" should be categorized as "Topic"
-- ALWAYS include industry topics for companies and an overarching theme topic for the episode
-- ALWAYS create entities for any of Hamilton Helmer's 7 Powers mentioned and connect them to relevant companies and connect them where a connection is needed`,
+"entities": [
+{ "name": "Microsoft", "type": "Company", "description": "Founded 1975; OS market leader." },
+{ "name": "Network Economies", "type": "Topic", "description": "Value grows as more users join the platform." }
+],
+"relationships": [
+{ "source": "Microsoft", "target": "Network Economies", "description": "Leveraged network effects in Windows ecosystem." }
+]
+}`,
         },
         {
           role: "user",
