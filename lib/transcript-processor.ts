@@ -2,6 +2,7 @@ import * as cheerio from "cheerio"
 import { OpenAI } from "openai"
 import { getEpisodeByUrl, createEpisode } from "./db"
 import { storeRawEntities, storeRawRelationships, type RawEntity, type RawRelationship } from "./staging-store"
+import { processInParallel } from "./parallel-processor" // Import the parallel processor
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -168,20 +169,70 @@ export async function processEpisode(episodeUrl: string): Promise<{
     const episode = await createEpisode(title || `Episode from ${episodeUrl}`, episodeUrl, publishedAt)
     console.log(`Episode created with ID: ${episode.id}`)
 
-    // Extract raw entities and relationships from transcript
-    console.log("Extracting raw entities and relationships from processed transcript...")
-    const { entities, relationships } = await extractEntitiesAndRelationships(
-      processedTranscript,
-      title || "Untitled Episode",
-    )
+    // --- Batch Processing Logic ---
+    const CHUNK_SIZE = 10000 // Characters per chunk
+    const OVERLAP_SIZE = 500 // Overlap to maintain context
+    const OPENAI_CONCURRENCY_LIMIT = 3; // Limit concurrent OpenAI calls
+
+    let allExtractedEntities: any[] = []
+    let allExtractedRelationships: any[] = []
+
+    // Deduplication sets for entities and relationships within this processing run
+    const uniqueEntities = new Map<string, any>() // Key: `${name}|${type}`
+    const uniqueRelationships = new Map<string, any>() // Key: `${source}|${target}|${description}`
+
+    const chunks: string[] = [];
+    for (let i = 0; i < processedTranscript.length; i += CHUNK_SIZE - OVERLAP_SIZE) {
+      chunks.push(processedTranscript.substring(i, i + CHUNK_SIZE));
+    }
+
+    console.log(`Splitting transcript into ${chunks.length} chunks for parallel processing.`)
+
+    // Process chunks in parallel using processInParallel
+    const chunkResults = await processInParallel(
+      chunks,
+      async (chunk) => {
+        return extractEntitiesAndRelationships(
+          chunk,
+          title || "Untitled Episode"
+        );
+      },
+      OPENAI_CONCURRENCY_LIMIT
+    );
+
+    chunkResults.forEach(result => {
+      result.entities.forEach(entity => {
+        const key = `${entity.name.toLowerCase()}|${entity.type.toLowerCase()}`
+        if (!uniqueEntities.has(key)) {
+          uniqueEntities.set(key, entity)
+        } else {
+          // Optionally update description if new one is better
+          const existing = uniqueEntities.get(key);
+          if (entity.description && (!existing.description || entity.description.length > existing.description.length)) {
+            uniqueEntities.set(key, { ...existing, description: entity.description });
+          }
+        }
+      });
+
+      result.relationships.forEach(rel => {
+        const key = `${rel.source.toLowerCase()}|${rel.target.toLowerCase()}|${rel.description.toLowerCase()}`
+        if (!uniqueRelationships.has(key)) {
+          uniqueRelationships.set(key, rel)
+        }
+      });
+    });
+
+    allExtractedEntities = Array.from(uniqueEntities.values());
+    allExtractedRelationships = Array.from(uniqueRelationships.values());
+
     console.log(
-      `Extracted ${entities.length} raw entities and ${relationships.length} raw relationships from transcript`,
+      `Aggregated ${allExtractedEntities.length} unique entities and ${allExtractedRelationships.length} unique relationships from all chunks`,
     )
 
     // Store raw entities and relationships in staging area
     const now = new Date()
 
-    const rawEntities: RawEntity[] = entities.map((entity) => ({
+    const rawEntitiesToStore: RawEntity[] = allExtractedEntities.map((entity) => ({
       name: entity.name,
       type: entity.type,
       description: entity.description,
@@ -190,7 +241,7 @@ export async function processEpisode(episodeUrl: string): Promise<{
       extractedAt: now,
     }))
 
-    const rawRelationships: RawRelationship[] = relationships.map((rel) => ({
+    const rawRelationshipsToStore: RawRelationship[] = allExtractedRelationships.map((rel) => ({
       sourceName: rel.source,
       targetName: rel.target,
       description: rel.description,
@@ -200,19 +251,19 @@ export async function processEpisode(episodeUrl: string): Promise<{
     }))
 
     // Store in staging area
-    await storeRawEntities(rawEntities)
-    await storeRawRelationships(rawRelationships)
+    await storeRawEntities(rawEntitiesToStore)
+    await storeRawRelationships(rawRelationshipsToStore)
 
     console.log(
-      `Stored ${rawEntities.length} raw entities and ${rawRelationships.length} raw relationships in staging area`,
+      `Stored ${rawEntitiesToStore.length} raw entities and ${rawRelationshipsToStore.length} raw relationships in staging area`,
     )
 
     return {
       success: true,
       message: `Successfully processed episode: ${episode.title}`,
       episodeId: episode.id,
-      rawEntities: rawEntities.length,
-      rawRelationships: rawRelationships.length,
+      rawEntities: rawEntitiesToStore.length,
+      rawRelationships: rawRelationshipsToStore.length,
     }
   } catch (error) {
     console.error(`Error processing episode ${episodeUrl}:`, error)
@@ -308,23 +359,24 @@ function extractRelevantTranscriptContent(fullTranscript: string): string {
 
 // Function to extract entities and relationships from transcript using OpenAI
 async function extractEntitiesAndRelationships(
-  transcript: string,
+  transcriptChunk: string, // Renamed to transcriptChunk
   episodeTitle: string,
 ): Promise<{
   entities: any[]
   relationships: any[]
 }> {
   try {
-    // Limit transcript length to avoid token limits
-    const truncatedTranscript = transcript.substring(0, 16000)
-    console.log(`Sending ${truncatedTranscript.length} characters to OpenAI for entity and relationship extraction`)
+    // No need to truncate here, as we're already sending a chunk
+    console.log(`Sending chunk (length: ${transcriptChunk.length}) to OpenAI for entity and relationship extraction`)
 
     const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo-16k",
+      model: "gpt-3.5-turbo", // Using gpt-3.5-turbo for cost efficiency
       messages: [
         {
           role: "system",
           content: `You are a bot created to parse key entities and the relationships between them from Acquired podcast transcripts. Aqcuired is a show about great business and the story and strategy behind them hosted by Ben Gilbert and David Rosenthal. The ultimate goal is to build a network graph visualization connecting all discussed entities. For all the requirements that will follow, you are required to wear the hat of a strategic business consultant/MBA with special focus on the Hamilton Helmer's 7 Powers (seven enduring sources of competitive advantage).
+
+This is a segment of a larger transcript. Focus on extracting entities and relationships that are explicitly mentioned or strongly implied *within this segment*. Do not try to infer global context beyond this segment.
 
 Here is what you need to extract
 
@@ -332,29 +384,21 @@ ENTITIES
 Types: Company, Person, Topic
 Must include:
 
-- Main companies (1-4) whose history or strategy is analyzed in depth
-
-- At least one industry topic per company such as luxury good, semiconductors, platforms, payments, media, sports (infer if unstated)
-
-- At least one overarching theme for the episode as a topic (for example, efficient capital allocation, moore's law)
-
+- Main companies (1-4) whose history or strategy is analyzed in depth *within this segment*.
+- At least one industry topic per company such as luxury good, semiconductors, platforms, payments, media, sports (infer if unstated) *within this segment*.
+- At least one overarching theme for the episode as a topic (for example, efficient capital allocation, moore's law) *if relevant to this segment*.
 - At least one topic entity for each of Helmer's 7 Powers when mentioned or clearly implied: Scale Economies, Network Economies, Counter-Positioning, Switching Costs, Branding, Cornered Resource, Process Power. Look for the part where the hosts talk about Power in the transcript because it is of paramount importance. If no powers are directly linked to a company with a verb like "has" or "holds", use your best judgement as an MBA to implyfrom the context what power the company has. There are episodes with no power discussion so you can skip the power on those.
 
 RELATIONSHIPS
 Every entity must link back to at least one main company. Required links:
 
 - Company to industry (label as “operates in”)
-
 - Overarching theme to the episode company
-
 - Person to episode company (for example, “founded by” or “CEO of”)
-
 - Product or service to company
-
 - Company and topic (for strategies or markets)
 
 - Company and power (if hosts state or imply a Helmer power; always link Branding for luxury brands) - IMPERATIVE POINT!
-
 - Ensure the network is fully connected so that every node traces back, directly or indirectly, to a main company.
 
 DESCRIPTIONS
@@ -378,7 +422,7 @@ Example:
         },
         {
           role: "user",
-          content: truncatedTranscript,
+          content: transcriptChunk, // Use the chunk here
         },
       ],
       response_format: { type: "json_object" },
@@ -386,7 +430,7 @@ Example:
 
     const content = response.choices[0].message.content
     if (!content) {
-      throw new Error("Failed to extract entities and relationships from transcript")
+      throw new Error("No content in OpenAI response")
     }
 
     console.log("Received response from OpenAI")

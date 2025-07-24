@@ -27,7 +27,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Call OpenAI API
     const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo-16k",
+      model: "gpt-3.5-turbo", // Changed model to gpt-3.5-turbo
       messages: [
         {
           role: "system",
@@ -89,9 +89,6 @@ NETWORK COMPLETENESS:
 - Ensure that EVERY entity is connected to at least one other entity
 - Ensure that there is a path from EVERY entity to at least one of the main companies (directly or indirectly)
 - Create logical connections between related entities even if not explicitly stated (e.g., a founder should be connected to their company)
-
-PART 3.5: Connecting the 7 powers to the company
-This section is ABSOLUTELY CRITICAL. You MUST parse through it with extreme care and precision. Your primary goal here is to identify and connect every single instance where a company's competitive advantage or business model is discussed in terms of Hamilton Helmer's 7 Powers. Do NOT miss any implied or subtle associations. If the discussion clearly points to a power, create the connection.
 
 PART 4: THE OUTPUT
 
