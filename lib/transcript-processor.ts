@@ -172,7 +172,7 @@ export async function processEpisode(episodeUrl: string): Promise<{
     // --- Batch Processing Logic ---
     const CHUNK_SIZE = 10000 // Characters per chunk
     const OVERLAP_SIZE = 500 // Overlap to maintain context
-    const OPENAI_CONCURRENCY_LIMIT = 3; // Limit concurrent OpenAI calls
+    const OPENAI_CONCURRENCY_LIMIT = 3 // Limit concurrent OpenAI calls
 
     let allExtractedEntities: any[] = []
     let allExtractedRelationships: any[] = []
@@ -181,9 +181,9 @@ export async function processEpisode(episodeUrl: string): Promise<{
     const uniqueEntities = new Map<string, any>() // Key: `${name}|${type}`
     const uniqueRelationships = new Map<string, any>() // Key: `${source}|${target}|${description}`
 
-    const chunks: string[] = [];
+    const chunks: string[] = []
     for (let i = 0; i < processedTranscript.length; i += CHUNK_SIZE - OVERLAP_SIZE) {
-      chunks.push(processedTranscript.substring(i, i + CHUNK_SIZE));
+      chunks.push(processedTranscript.substring(i, i + CHUNK_SIZE))
     }
 
     console.log(`Splitting transcript into ${chunks.length} chunks for parallel processing.`)
@@ -192,47 +192,141 @@ export async function processEpisode(episodeUrl: string): Promise<{
     const chunkResults = await processInParallel(
       chunks,
       async (chunk) => {
-        return extractEntitiesAndRelationships(
-          chunk,
-          title || "Untitled Episode"
-        );
+        return extractEntitiesAndRelationships(chunk, title || "Untitled Episode")
       },
-      OPENAI_CONCURRENCY_LIMIT
-    );
+      OPENAI_CONCURRENCY_LIMIT,
+    )
 
-    chunkResults.forEach(result => {
-      result.entities.forEach(entity => {
+    chunkResults.forEach((result) => {
+      result.entities.forEach((entity) => {
         const key = `${entity.name.toLowerCase()}|${entity.type.toLowerCase()}`
         if (!uniqueEntities.has(key)) {
           uniqueEntities.set(key, entity)
         } else {
           // Optionally update description if new one is better
-          const existing = uniqueEntities.get(key);
-          if (entity.description && (!existing.description || entity.description.length > existing.description.length)) {
-            uniqueEntities.set(key, { ...existing, description: entity.description });
+          const existing = uniqueEntities.get(key)
+          if (
+            entity.description &&
+            (!existing.description || entity.description.length > existing.description.length)
+          ) {
+            uniqueEntities.set(key, { ...existing, description: entity.description })
           }
         }
-      });
+      })
 
-      result.relationships.forEach(rel => {
+      result.relationships.forEach((rel) => {
         const key = `${rel.source.toLowerCase()}|${rel.target.toLowerCase()}|${rel.description.toLowerCase()}`
         if (!uniqueRelationships.has(key)) {
           uniqueRelationships.set(key, rel)
         }
-      });
-    });
+      })
+    })
 
-    allExtractedEntities = Array.from(uniqueEntities.values());
-    allExtractedRelationships = Array.from(uniqueRelationships.values());
+    allExtractedEntities = Array.from(uniqueEntities.values())
+    allExtractedRelationships = Array.from(uniqueRelationships.values())
 
     console.log(
       `Aggregated ${allExtractedEntities.length} unique entities and ${allExtractedRelationships.length} unique relationships from all chunks`,
     )
 
-    // Store raw entities and relationships in staging area
-    const now = new Date()
+    // Add entity consolidation before storing
+    console.log("Consolidating similar entities...")
+    const consolidatedEntities = consolidateEntities(Array.from(uniqueEntities.values()))
+    const consolidatedRelationships = consolidateRelationships(
+      Array.from(uniqueRelationships.values()),
+      consolidatedEntities,
+    )
 
-    const rawEntitiesToStore: RawEntity[] = allExtractedEntities.map((entity) => ({
+    console.log(`Consolidated from ${uniqueEntities.size} to ${consolidatedEntities.length} entities`)
+
+    // Add luxury brand business logic
+    function addLuxuryBrandConnections(
+      entities: any[],
+      relationships: any[],
+    ): { entities: any[]; relationships: any[] } {
+      const luxuryBrands = [
+        "rolex",
+        "ferrari",
+        "louis vuitton",
+        "hermès",
+        "chanel",
+        "gucci",
+        "prada",
+        "cartier",
+        "tiffany",
+        "bulgari",
+        "patek philippe",
+        "lamborghini",
+        "bentley",
+        "rolls-royce",
+        "maserati",
+        "porsche",
+      ]
+
+      const updatedEntities = [...entities]
+      const updatedRelationships = [...relationships]
+
+      // Check if we have luxury brands and ensure proper connections
+      entities.forEach((entity) => {
+        if (entity.type === "Company" && luxuryBrands.some((brand) => entity.name.toLowerCase().includes(brand))) {
+          // Ensure Luxury Goods Industry exists
+          const hasLuxuryIndustry = entities.some((e) => e.name === "Luxury Goods Industry" && e.type === "Topic")
+
+          if (!hasLuxuryIndustry) {
+            updatedEntities.push({
+              name: "Luxury Goods Industry",
+              type: "Topic",
+              description: "Industry focused on high-end, premium consumer goods",
+            })
+          }
+
+          // Ensure Branding power exists
+          const hasBranding = entities.some((e) => e.name === "Branding" && e.type === "Topic")
+
+          if (!hasBranding) {
+            updatedEntities.push({
+              name: "Branding",
+              type: "Topic",
+              description: "Hamilton Helmer's 7th Power: customer loyalty beyond utilitarian value",
+            })
+          }
+
+          // Add required relationships
+          const hasIndustryConnection = relationships.some(
+            (r) => r.source === entity.name && r.target === "Luxury Goods Industry",
+          )
+
+          if (!hasIndustryConnection) {
+            updatedRelationships.push({
+              source: entity.name,
+              target: "Luxury Goods Industry",
+              description: "operates in the luxury goods market",
+            })
+          }
+
+          const hasBrandingConnection = relationships.some((r) => r.source === entity.name && r.target === "Branding")
+
+          if (!hasBrandingConnection) {
+            updatedRelationships.push({
+              source: entity.name,
+              target: "Branding",
+              description: "leverages brand power as competitive advantage",
+            })
+          }
+        }
+      })
+
+      return { entities: updatedEntities, relationships: updatedRelationships }
+    }
+
+    // Apply luxury brand business logic
+    const { entities: entitiesWithLuxury, relationships: relationshipsWithLuxury } = addLuxuryBrandConnections(
+      consolidatedEntities,
+      consolidatedRelationships,
+    )
+
+    // Update the final arrays
+    const rawEntitiesToStore: RawEntity[] = entitiesWithLuxury.map((entity) => ({
       name: entity.name,
       type: entity.type,
       description: entity.description,
@@ -241,7 +335,7 @@ export async function processEpisode(episodeUrl: string): Promise<{
       extractedAt: now,
     }))
 
-    const rawRelationshipsToStore: RawRelationship[] = allExtractedRelationships.map((rel) => ({
+    const rawRelationshipsToStore: RawRelationship[] = relationshipsWithLuxury.map((rel) => ({
       sourceName: rel.source,
       targetName: rel.target,
       description: rel.description,
@@ -249,6 +343,9 @@ export async function processEpisode(episodeUrl: string): Promise<{
       episodeTitle: title || "Untitled Episode",
       extractedAt: now,
     }))
+
+    // Store raw entities and relationships in staging area
+    const now = new Date()
 
     // Store in staging area
     await storeRawEntities(rawEntitiesToStore)
@@ -374,51 +471,128 @@ async function extractEntitiesAndRelationships(
       messages: [
         {
           role: "system",
-          content: `You are a bot created to parse key entities and the relationships between them from Acquired podcast transcripts. Aqcuired is a show about great business and the story and strategy behind them hosted by Ben Gilbert and David Rosenthal. The ultimate goal is to build a network graph visualization connecting all discussed entities. For all the requirements that will follow, you are required to wear the hat of a strategic business consultant/MBA with special focus on the Hamilton Helmer's 7 Powers (seven enduring sources of competitive advantage).
+          content: `You are an expert business strategist analyzing Acquired podcast transcripts. Acquired focuses on the stories and strategies behind great companies. 
 
-This is a segment of a larger transcript. Focus on extracting entities and relationships that are explicitly mentioned or strongly implied *within this segment*. Do not try to infer global context beyond this segment.
+Your task has TWO PARTS:
+1. EXTRACT strategically important entities 
+2. CREATE meaningful relationships between them
 
-Here is what you need to extract
+PART 1: ENTITY EXTRACTION
 
-ENTITIES
-Types: Company, Person, Topic
-Must include:
+Be SELECTIVE - main focus on extracting entities central to the main company's strategic story. Entities parallel to the story on anectodes should be considered as well when they clearly relate to entities in other Acquired Episodes. Aim for 30-40 entities maximum per segment.
 
-- Main companies (1-4) whose history or strategy is analyzed in depth *within this segment*.
-- At least one industry topic per company such as luxury good, semiconductors, platforms, payments, media, sports (infer if unstated) *within this segment*.
-- At least one overarching theme for the episode as a topic (for example, efficient capital allocation, moore's law) *if relevant to this segment*.
-- At least one topic entity for each of Helmer's 7 Powers when mentioned or clearly implied: Scale Economies, Network Economies, Counter-Positioning, Switching Costs, Branding, Cornered Resource, Process Power. Look for the part where the hosts talk about Power in the transcript because it is of paramount importance. If no powers are directly linked to a company with a verb like "has" or "holds", use your best judgement as an MBA to implyfrom the context what power the company has. There are episodes with no power discussion so you can skip the power on those.
+ENTITY TYPES (use exactly these three types):
+- "Company": Only main companies being analyzed + major strategic partners/competitors/acquisitions central to the story
+- "Person": Only founders, key CEOs, and individuals pivotal to the company's strategic direction  
+- "Topic": Strategic concepts, industries, competitive advantages, products, technologies
 
-RELATIONSHIPS
-Every entity must link back to at least one main company. Required links:
+STANDARDIZED TOPIC NAMES (use these EXACT names when applicable):
 
-- Company to industry (label as “operates in”)
-- Overarching theme to the episode company
-- Person to episode company (for example, “founded by” or “CEO of”)
-- Product or service to company
-- Company and topic (for strategies or markets)
+Industries:
+- "Luxury Goods Industry"
+- "Semiconductor Industry" 
+- "Software Industry"
+- "Social Media Industry"
+- "E-commerce Industry"
+- "Financial Services Industry"
+- "Healthcare Industry"
+- "Automotive Industry"
+- "Entertainment Industry"
+- "Gaming Industry"
 
-- Company and power (if hosts state or imply a Helmer power; always link Branding for luxury brands) - IMPERATIVE POINT!
-- Ensure the network is fully connected so that every node traces back, directly or indirectly, to a main company.
+Hamilton Helmer's 7 Powers (use EXACT names):
+- "Scale Economies"
+- "Network Economies" 
+- "Counter-Positioning"
+- "Switching Costs"
+- "Branding"
+- "Cornered Resource"
+- "Process Power"
 
-DESCRIPTIONS
-- Each description must be a single concise sentence (20 words max) highlighting strategic importance.
+Strategic Concepts:
+- "Vertical Integration"
+- "Platform Strategy"
+- "Ecosystem Strategy"
+- "Innovation Strategy"
+- "Acquisition Strategy"
+- "Market Timing"
+- "Product-Market Fit"
 
-OUTPUT FORMAT
-Produce one JSON object with two arrays:
-entities - each object has name, type, description
-relationships - each object has source, target, description
+PART 2: RELATIONSHIP CREATION
 
-Example:
+Create meaningful connections between ALL extracted entities. Every entity must connect to at least one other entity.
+
+MANDATORY RELATIONSHIPS:
+- Every main company MUST connect to its industry: "operates in [Industry]"
+- Every person MUST connect to their company: "founded" / "led as CEO" / "was key executive at"
+- Luxury brands MUST connect to BOTH "Luxury Goods Industry" AND "Branding"
+- Products/services MUST connect to their parent company: "developed by" / "created by"
+- Strategic concepts MUST connect to relevant companies: "leveraged by" / "implemented by"
+
+RELATIONSHIP DESCRIPTIONS:
+- Use active, specific verbs: "founded", "acquired", "developed", "leveraged", "operates in"
+- Keep descriptions under 10 words
+- Focus on the strategic nature of the connection
+
+NETWORK COMPLETENESS:
+- Ensure every entity connects to at least one other entity
+- Ensure there's a path from every entity back to a main company (directly or indirectly)
+- No orphaned entities allowed
+
+OUTPUT FORMAT:
+Return a JSON object with exactly this structure:
+
 {
-"entities": [
-{ "name": "Microsoft", "type": "Company", "description": "Founded 1975; OS market leader." },
-{ "name": "Network Economies", "type": "Topic", "description": "Value grows as more users join the platform." }
-],
-"relationships": [
-{ "source": "Microsoft", "target": "Network Economies", "description": "Leveraged network effects in Windows ecosystem." }
-]
-}`,
+  "entities": [
+    {
+      "name": "Exact Entity Name",
+      "type": "Company|Person|Topic", 
+      "description": "Single strategic sentence, 15 words max"
+    }
+  ],
+  "relationships": [
+    {
+      "source": "Source Entity Name",
+      "target": "Target Entity Name", 
+      "description": "Active verb describing connection, under 10 words"
+    }
+  ]
+}
+
+EXAMPLE:
+{
+  "entities": [
+    {
+      "name": "Rolex",
+      "type": "Company",
+      "description": "Swiss luxury watchmaker known for precision and brand prestige"
+    },
+    {
+      "name": "Luxury Goods Industry", 
+      "type": "Topic",
+      "description": "Industry focused on high-end premium consumer goods"
+    },
+    {
+      "name": "Branding",
+      "type": "Topic", 
+      "description": "Hamilton Helmer's 7th Power: customer loyalty beyond utilitarian value"
+    }
+  ],
+  "relationships": [
+    {
+      "source": "Rolex",
+      "target": "Luxury Goods Industry",
+      "description": "operates in luxury goods market"
+    },
+    {
+      "source": "Rolex", 
+      "target": "Branding",
+      "description": "leverages brand power as competitive advantage"
+    }
+  ]
+}
+
+Remember: Be ruthlessly selective. Quality over quantity. Focus on strategic importance and the acquired universe oc characters and companies.`,
         },
         {
           role: "user",
@@ -464,4 +638,96 @@ Example:
     console.error("Error extracting entities and relationships:", error)
     throw error
   }
+}
+
+// Entity consolidation functions
+function consolidateEntities(entities: any[]): any[] {
+  const consolidationMap: Record<string, string> = {
+    // Brand-related consolidation
+    "brand management": "Branding",
+    "brand power": "Branding",
+    "brand positioning": "Branding",
+    "brand strategy": "Branding",
+    "brand building": "Branding",
+    "brand equity": "Branding",
+
+    // Scale-related consolidation
+    "economies of scale": "Scale Economies",
+    "scale advantages": "Scale Economies",
+    "scale benefits": "Scale Economies",
+
+    // Network-related consolidation
+    "network effects": "Network Economies",
+    "network advantages": "Network Economies",
+    "network value": "Network Economies",
+
+    // Industry standardization
+    "luxury market": "Luxury Goods Industry",
+    "luxury sector": "Luxury Goods Industry",
+    "luxury business": "Luxury Goods Industry",
+    "semiconductor market": "Semiconductor Industry",
+    "chip industry": "Semiconductor Industry",
+    "software market": "Software Industry",
+    "tech industry": "Software Industry",
+  }
+
+  const consolidatedMap = new Map<string, any>()
+
+  entities.forEach((entity) => {
+    const normalizedName = entity.name.toLowerCase()
+    const standardName = consolidationMap[normalizedName] || entity.name
+
+    const key = `${standardName.toLowerCase()}|${entity.type.toLowerCase()}`
+
+    if (!consolidatedMap.has(key)) {
+      consolidatedMap.set(key, {
+        ...entity,
+        name: standardName,
+      })
+    } else {
+      // Keep the better description
+      const existing = consolidatedMap.get(key)
+      if (entity.description && (!existing.description || entity.description.length > existing.description.length)) {
+        consolidatedMap.set(key, {
+          ...existing,
+          description: entity.description,
+        })
+      }
+    }
+  })
+
+  return Array.from(consolidatedMap.values())
+}
+
+function consolidateRelationships(relationships: any[], consolidatedEntities: any[]): any[] {
+  const entityNameMap = new Map<string, string>()
+
+  // Create a mapping from old names to new consolidated names
+  consolidatedEntities.forEach((entity) => {
+    entityNameMap.set(entity.name.toLowerCase(), entity.name)
+  })
+
+  const consolidationMap: Record<string, string> = {
+    "brand management": "Branding",
+    "brand power": "Branding",
+    "brand positioning": "Branding",
+    "brand strategy": "Branding",
+    "economies of scale": "Scale Economies",
+    "network effects": "Network Economies",
+    "luxury market": "Luxury Goods Industry",
+    "semiconductor market": "Semiconductor Industry",
+  }
+
+  return relationships
+    .map((rel) => ({
+      ...rel,
+      source: consolidationMap[rel.source.toLowerCase()] || rel.source,
+      target: consolidationMap[rel.target.toLowerCase()] || rel.target,
+    }))
+    .filter((rel) => {
+      // Only keep relationships where both entities exist in our consolidated set
+      const sourceExists = entityNameMap.has(rel.source.toLowerCase())
+      const targetExists = entityNameMap.has(rel.target.toLowerCase())
+      return sourceExists && targetExists
+    })
 }
