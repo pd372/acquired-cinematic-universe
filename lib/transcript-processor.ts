@@ -325,6 +325,9 @@ export async function processEpisode(episodeUrl: string): Promise<{
       consolidatedRelationships,
     )
 
+    // FIXED: Declare 'now' before using it
+    const now = new Date()
+
     // Update the final arrays
     const rawEntitiesToStore: RawEntity[] = entitiesWithLuxury.map((entity) => ({
       name: entity.name,
@@ -332,7 +335,7 @@ export async function processEpisode(episodeUrl: string): Promise<{
       description: entity.description,
       episodeId: episode.id,
       episodeTitle: title || "Untitled Episode",
-      extractedAt: now,
+      extractedAt: now, // Now 'now' is properly declared
     }))
 
     const rawRelationshipsToStore: RawRelationship[] = relationshipsWithLuxury.map((rel) => ({
@@ -341,11 +344,8 @@ export async function processEpisode(episodeUrl: string): Promise<{
       description: rel.description,
       episodeId: episode.id,
       episodeTitle: title || "Untitled Episode",
-      extractedAt: now,
+      extractedAt: now, // Now 'now' is properly declared
     }))
-
-    // Store raw entities and relationships in staging area
-    const now = new Date()
 
     // Store in staging area
     await storeRawEntities(rawEntitiesToStore)
