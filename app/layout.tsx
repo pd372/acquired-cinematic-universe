@@ -9,7 +9,7 @@ import { Toaster } from "@/components/ui/toaster"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "Acquired Zettelkasten",
+  title: "Acquired Cinematic Universe",
   description: "Interactive knowledge graph for the Acquired podcast",
     generator: 'v0.dev'
 }

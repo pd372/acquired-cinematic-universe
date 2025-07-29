@@ -169,13 +169,17 @@ export async function processEpisode(episodeUrl: string): Promise<{
     const episode = await createEpisode(title || `Episode from ${episodeUrl}`, episodeUrl, publishedAt)
     console.log(`Episode created with ID: ${episode.id}`)
 
-    // --- Batch Processing Logic ---
-    const CHUNK_SIZE = 10000 // Characters per chunk
-    const OVERLAP_SIZE = 500 // Overlap to maintain context
-    const OPENAI_CONCURRENCY_LIMIT = 3 // Limit concurrent OpenAI calls
+    // --- CROSS-CHUNK ENTITY CONTEXT ---
+    // First, get a high-level overview of the entire episode to establish main entities
+    const episodeOverview = await extractEpisodeOverview(processedTranscript, title || "Untitled Episode")
+    console.log(
+      `Episode overview extracted: ${episodeOverview.mainCompanies.length} main companies, ${episodeOverview.keyTopics.length} key topics`,
+    )
 
-    let allExtractedEntities: any[] = []
-    let allExtractedRelationships: any[] = []
+    // --- Batch Processing Logic ---
+    const CHUNK_SIZE = 15000 // Increased chunk size to reduce total chunks
+    const OVERLAP_SIZE = 1000 // Increased overlap for better context
+    const OPENAI_CONCURRENCY_LIMIT = 3 // Limit concurrent OpenAI calls
 
     // Deduplication sets for entities and relationships within this processing run
     const uniqueEntities = new Map<string, any>() // Key: `${name}|${type}`
@@ -192,13 +196,19 @@ export async function processEpisode(episodeUrl: string): Promise<{
     const chunkResults = await processInParallel(
       chunks,
       async (chunk) => {
-        return extractEntitiesAndRelationships(chunk, title || "Untitled Episode")
+        return extractEntitiesAndRelationships(chunk, title || "Untitled Episode", episodeOverview)
       },
       OPENAI_CONCURRENCY_LIMIT,
     )
 
     chunkResults.forEach((result) => {
       result.entities.forEach((entity) => {
+        // STRICT TYPE VALIDATION - reject invalid types
+        if (!["Company", "Person", "Topic"].includes(entity.type)) {
+          console.warn(`Rejecting entity with invalid type: ${entity.name} (${entity.type})`)
+          return
+        }
+
         const key = `${entity.name.toLowerCase()}|${entity.type.toLowerCase()}`
         if (!uniqueEntities.has(key)) {
           uniqueEntities.set(key, entity)
@@ -222,22 +232,25 @@ export async function processEpisode(episodeUrl: string): Promise<{
       })
     })
 
-    allExtractedEntities = Array.from(uniqueEntities.values())
-    allExtractedRelationships = Array.from(uniqueRelationships.values())
+    const allExtractedEntities = Array.from(uniqueEntities.values())
+    const allExtractedRelationships = Array.from(uniqueRelationships.values())
 
     console.log(
       `Aggregated ${allExtractedEntities.length} unique entities and ${allExtractedRelationships.length} unique relationships from all chunks`,
     )
 
+    // Add cross-chunk relationships based on episode overview
+    const crossChunkRelationships = createCrossChunkRelationships(allExtractedEntities, episodeOverview)
+    const allRelationships = [...allExtractedRelationships, ...crossChunkRelationships]
+
+    console.log(`Added ${crossChunkRelationships.length} cross-chunk relationships`)
+
     // Add entity consolidation before storing
     console.log("Consolidating similar entities...")
-    const consolidatedEntities = consolidateEntities(Array.from(uniqueEntities.values()))
-    const consolidatedRelationships = consolidateRelationships(
-      Array.from(uniqueRelationships.values()),
-      consolidatedEntities,
-    )
+    const consolidatedEntities = consolidateEntities(allExtractedEntities)
+    const consolidatedRelationships = consolidateRelationships(allRelationships, consolidatedEntities)
 
-    console.log(`Consolidated from ${uniqueEntities.size} to ${consolidatedEntities.length} entities`)
+    console.log(`Consolidated from ${allExtractedEntities.length} to ${consolidatedEntities.length} entities`)
 
     // Add luxury brand business logic
     function addLuxuryBrandConnections(
@@ -325,26 +338,36 @@ export async function processEpisode(episodeUrl: string): Promise<{
       consolidatedRelationships,
     )
 
-    // FIXED: Declare 'now' before using it
+    // FINAL FILTERING: Keep only the most strategic entities
+    const strategicEntities = filterStrategicEntities(entitiesWithLuxury, title || "Untitled Episode")
+    const filteredRelationships = relationshipsWithLuxury.filter((rel) => {
+      const sourceExists = strategicEntities.some((e) => e.name === rel.source)
+      const targetExists = strategicEntities.some((e) => e.name === rel.target)
+      return sourceExists && targetExists
+    })
+
+    console.log(`Final filtering: ${entitiesWithLuxury.length} → ${strategicEntities.length} entities`)
+
+    // Declare 'now' before using it
     const now = new Date()
 
     // Update the final arrays
-    const rawEntitiesToStore: RawEntity[] = entitiesWithLuxury.map((entity) => ({
+    const rawEntitiesToStore: RawEntity[] = strategicEntities.map((entity) => ({
       name: entity.name,
       type: entity.type,
       description: entity.description,
       episodeId: episode.id,
       episodeTitle: title || "Untitled Episode",
-      extractedAt: now, // Now 'now' is properly declared
+      extractedAt: now,
     }))
 
-    const rawRelationshipsToStore: RawRelationship[] = relationshipsWithLuxury.map((rel) => ({
+    const rawRelationshipsToStore: RawRelationship[] = filteredRelationships.map((rel) => ({
       sourceName: rel.source,
       targetName: rel.target,
       description: rel.description,
       episodeId: episode.id,
       episodeTitle: title || "Untitled Episode",
-      extractedAt: now, // Now 'now' is properly declared
+      extractedAt: now,
     }))
 
     // Store in staging area
@@ -366,6 +389,234 @@ export async function processEpisode(episodeUrl: string): Promise<{
     console.error(`Error processing episode ${episodeUrl}:`, error)
     return { success: false, message: `Error: ${error instanceof Error ? error.message : String(error)}` }
   }
+}
+
+// NEW: Function to extract episode overview for cross-chunk context
+async function extractEpisodeOverview(
+  transcript: string,
+  episodeTitle: string,
+): Promise<{
+  mainCompanies: string[]
+  keyTopics: string[]
+  sevenPowers: string[]
+  industry: string
+}> {
+  try {
+    // Take a sample from the beginning, middle, and end of the transcript
+    const sampleSize = 3000
+    const beginning = transcript.substring(0, sampleSize)
+    const middle = transcript.substring(
+      Math.floor(transcript.length / 2) - sampleSize / 2,
+      Math.floor(transcript.length / 2) + sampleSize / 2,
+    )
+    const end = transcript.substring(transcript.length - sampleSize)
+    const sample = `${beginning}\n\n[MIDDLE SECTION]\n${middle}\n\n[END SECTION]\n${end}`
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        {
+          role: "system",
+          content: `Extract the high-level overview of this Acquired podcast episode.
+
+EPISODE TITLE: "${episodeTitle}"
+
+Identify:
+1. Main companies (1-3 companies that are the primary focus)
+2. Key strategic topics and concepts discussed
+3. Any of Hamilton Helmer's 7 Powers mentioned: Scale Economies, Network Economies, Counter-Positioning, Switching Costs, Branding, Cornered Resource, Process Power
+4. The primary industry being discussed
+
+Return JSON:
+{
+  "mainCompanies": ["Company1", "Company2"],
+  "keyTopics": ["Topic1", "Topic2", "Topic3"],
+  "sevenPowers": ["Branding", "Scale Economies"],
+  "industry": "Industry Name"
+}`,
+        },
+        {
+          role: "user",
+          content: sample,
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.1,
+    })
+
+    const content = response.choices[0].message.content
+    if (!content) {
+      throw new Error("No content in episode overview response")
+    }
+
+    const overview = JSON.parse(content)
+    return {
+      mainCompanies: overview.mainCompanies || [],
+      keyTopics: overview.keyTopics || [],
+      sevenPowers: overview.sevenPowers || [],
+      industry: overview.industry || "Unknown Industry",
+    }
+  } catch (error) {
+    console.error("Error extracting episode overview:", error)
+    return {
+      mainCompanies: [],
+      keyTopics: [],
+      sevenPowers: [],
+      industry: "Unknown Industry",
+    }
+  }
+}
+
+// NEW: Function to create cross-chunk relationships
+function createCrossChunkRelationships(entities: any[], overview: any): any[] {
+  const relationships: any[] = []
+
+  // Connect all main companies to the industry
+  overview.mainCompanies.forEach((company: string) => {
+    const companyEntity = entities.find(
+      (e) => e.type === "Company" && e.name.toLowerCase().includes(company.toLowerCase()),
+    )
+    if (companyEntity && overview.industry) {
+      relationships.push({
+        source: companyEntity.name,
+        target: overview.industry,
+        description: "operates in this industry",
+      })
+    }
+  })
+
+  // Connect main companies to identified 7 Powers
+  overview.sevenPowers.forEach((power: string) => {
+    const powerEntity = entities.find((e) => e.type === "Topic" && e.name.toLowerCase().includes(power.toLowerCase()))
+    if (powerEntity) {
+      overview.mainCompanies.forEach((company: string) => {
+        const companyEntity = entities.find(
+          (e) => e.type === "Company" && e.name.toLowerCase().includes(company.toLowerCase()),
+        )
+        if (companyEntity) {
+          relationships.push({
+            source: companyEntity.name,
+            target: powerEntity.name,
+            description: "leverages this strategic power",
+          })
+        }
+      })
+    }
+  })
+
+  // Connect key topics to main companies
+  overview.keyTopics.forEach((topic: string) => {
+    const topicEntity = entities.find((e) => e.type === "Topic" && e.name.toLowerCase().includes(topic.toLowerCase()))
+    if (topicEntity) {
+      overview.mainCompanies.forEach((company: string) => {
+        const companyEntity = entities.find(
+          (e) => e.type === "Company" && e.name.toLowerCase().includes(company.toLowerCase()),
+        )
+        if (companyEntity) {
+          relationships.push({
+            source: companyEntity.name,
+            target: topicEntity.name,
+            description: "strategically related to",
+          })
+        }
+      })
+    }
+  })
+
+  return relationships
+}
+
+// Function to filter entities to keep only the most strategic ones
+function filterStrategicEntities(entities: any[], episodeTitle: string): any[] {
+  // Always keep these strategic entity types
+  const alwaysKeep = entities.filter((entity) => {
+    const name = entity.name.toLowerCase()
+
+    // Always keep 7 Powers
+    const sevenPowers = [
+      "scale economies",
+      "network economies",
+      "counter-positioning",
+      "switching costs",
+      "branding",
+      "cornered resource",
+      "process power",
+    ]
+    if (sevenPowers.includes(name)) return true
+
+    // Always keep main industries
+    if (name.includes("industry")) return true
+
+    // Always keep the main company (likely in episode title)
+    const titleWords = episodeTitle.toLowerCase().split(/\s+/)
+    if (titleWords.some((word) => name.includes(word) && word.length > 3)) return true
+
+    return false
+  })
+
+  // Score remaining entities by strategic importance
+  const scoredEntities = entities
+    .filter((entity) => !alwaysKeep.some((keep) => keep.name === entity.name))
+    .map((entity) => ({
+      ...entity,
+      score: calculateStrategicScore(entity, episodeTitle),
+    }))
+    .sort((a, b) => b.score - a.score)
+
+  // Take top strategic entities to reach target of ~30 total
+  const targetCount = Math.max(30 - alwaysKeep.length, 10)
+  const topStrategic = scoredEntities.slice(0, targetCount)
+
+  console.log(
+    `Strategic filtering: ${alwaysKeep.length} always keep + ${topStrategic.length} top strategic = ${alwaysKeep.length + topStrategic.length} total`,
+  )
+
+  return [...alwaysKeep, ...topStrategic]
+}
+
+// Function to calculate strategic importance score
+function calculateStrategicScore(entity: any, episodeTitle: string): number {
+  let score = 0
+  const name = entity.name.toLowerCase()
+  const description = (entity.description || "").toLowerCase()
+
+  // Higher score for companies (main focus of Acquired)
+  if (entity.type === "Company") score += 10
+
+  // Higher score for key people (founders, CEOs)
+  if (entity.type === "Person") {
+    if (description.includes("founder") || description.includes("ceo")) score += 8
+    else score += 3
+  }
+
+  // Strategic topics get higher scores
+  if (entity.type === "Topic") {
+    const strategicKeywords = [
+      "strategy",
+      "competitive",
+      "advantage",
+      "innovation",
+      "acquisition",
+      "market",
+      "platform",
+      "ecosystem",
+      "vertical",
+      "integration",
+    ]
+    if (strategicKeywords.some((keyword) => name.includes(keyword) || description.includes(keyword))) {
+      score += 6
+    } else {
+      score += 2
+    }
+  }
+
+  // Bonus for entities mentioned in episode title
+  const titleWords = episodeTitle.toLowerCase().split(/\s+/)
+  if (titleWords.some((word) => name.includes(word) && word.length > 3)) {
+    score += 5
+  }
+
+  return score
 }
 
 // Function to extract only the relevant content from the transcript
@@ -456,150 +707,97 @@ function extractRelevantTranscriptContent(fullTranscript: string): string {
 
 // Function to extract entities and relationships from transcript using OpenAI
 async function extractEntitiesAndRelationships(
-  transcriptChunk: string, // Renamed to transcriptChunk
+  transcriptChunk: string,
   episodeTitle: string,
+  episodeOverview: any,
 ): Promise<{
   entities: any[]
   relationships: any[]
 }> {
   try {
-    // No need to truncate here, as we're already sending a chunk
     console.log(`Sending chunk (length: ${transcriptChunk.length}) to OpenAI for entity and relationship extraction`)
 
     const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo", // Using gpt-3.5-turbo for cost efficiency
+      model: "gpt-3.5-turbo",
       messages: [
         {
           role: "system",
-          content: `You are an expert business strategist analyzing Acquired podcast transcripts. Acquired focuses on the stories and strategies behind great companies. 
+          content: `You are analyzing a chunk from an Acquired podcast episode about strategic business analysis.
 
-Your task has TWO PARTS:
-1. EXTRACT strategically important entities 
-2. CREATE meaningful relationships between them
+EPISODE CONTEXT:
+- Title: "${episodeTitle}"
+- Main Companies: ${episodeOverview.mainCompanies.join(", ")}
+- Industry: ${episodeOverview.industry}
+- Key Topics: ${episodeOverview.keyTopics.join(", ")}
 
-PART 1: ENTITY EXTRACTION
+TASK: Extract 8-12 strategically important entities from this chunk and create relationships between them.
 
-Be SELECTIVE - main focus on extracting entities central to the main company's strategic story. Entities parallel to the story on anectodes should be considered as well when they clearly relate to entities in other Acquired Episodes. Aim for 30-40 entities maximum per segment.
+STEP 1: EXTRACT ENTITIES
+Use ONLY these 3 types:
+- "Company": Business organizations (NOT products like "iPhone" or "Apple Watch")
+- "Person": Individual people (founders, CEOs, key executives)
+- "Topic": Everything else (products, industries, strategic concepts, Hamilton Helmer's 7 Powers)
 
-ENTITY TYPES (use exactly these three types):
-- "Company": Only main companies being analyzed + major strategic partners/competitors/acquisitions central to the story
-- "Person": Only founders, key CEOs, and individuals pivotal to the company's strategic direction  
-- "Topic": Strategic concepts, industries, competitive advantages, products, technologies
+STEP 2: CATEGORIZE INTO ONE OF THE 3 BUCKETS
+- Company: Apple, Microsoft, Rolex (organizations)
+- Person: Steve Jobs, Tim Cook, Morris Chang (individuals)
+- Topic: iPhone, Luxury Goods Industry, Branding, Scale Economies (concepts/products/industries)
 
-STANDARDIZED TOPIC NAMES (use these EXACT names when applicable):
+STEP 3: WRITE DESCRIPTIONS
+Each entity needs a brief strategic description (1-2 sentences max).
 
-Industries:
-- "Luxury Goods Industry"
-- "Semiconductor Industry" 
-- "Software Industry"
-- "Social Media Industry"
-- "E-commerce Industry"
-- "Financial Services Industry"
-- "Healthcare Industry"
-- "Automotive Industry"
-- "Entertainment Industry"
-- "Gaming Industry"
+STEP 4: MANDATORY - LOOK FOR HAMILTON HELMER'S 7 POWERS
+Always scan for these exact powers and create Topic entities if found:
+- "Scale Economies" - declining unit costs with increased production
+- "Network Economies" - value increases as customer base grows  
+- "Counter-Positioning" - new position incumbent can't copy without harm
+- "Switching Costs" - customer value loss when switching alternatives
+- "Branding" - habitual purchase based on trust beyond utility
+- "Cornered Resource" - preferential access to coveted asset
+- "Process Power" - embedded organization enabling lower costs
 
-Hamilton Helmer's 7 Powers (use EXACT names):
-- "Scale Economies"
-- "Network Economies" 
-- "Counter-Positioning"
-- "Switching Costs"
-- "Branding"
-- "Cornered Resource"
-- "Process Power"
+STEP 5: MANDATORY - LOOK FOR OVERARCHING TOPIC/INDUSTRY
+Always include the primary industry as a Topic entity (e.g., "Luxury Goods Industry", "Semiconductor Industry").
 
-Strategic Concepts:
-- "Vertical Integration"
-- "Platform Strategy"
-- "Ecosystem Strategy"
-- "Innovation Strategy"
-- "Acquisition Strategy"
-- "Market Timing"
-- "Product-Market Fit"
+STEP 6: CREATE RELATIONSHIPS
+Connect entities with meaningful relationships. Every entity should connect to at least one other entity.
 
-PART 2: RELATIONSHIP CREATION
-
-Create meaningful connections between ALL extracted entities. Every entity must connect to at least one other entity.
-
-MANDATORY RELATIONSHIPS:
-- Every main company MUST connect to its industry: "operates in [Industry]"
-- Every person MUST connect to their company: "founded" / "led as CEO" / "was key executive at"
-- Luxury brands MUST connect to BOTH "Luxury Goods Industry" AND "Branding"
-- Products/services MUST connect to their parent company: "developed by" / "created by"
-- Strategic concepts MUST connect to relevant companies: "leveraged by" / "implemented by"
-
-RELATIONSHIP DESCRIPTIONS:
-- Use active, specific verbs: "founded", "acquired", "developed", "leveraged", "operates in"
-- Keep descriptions under 10 words
-- Focus on the strategic nature of the connection
-
-NETWORK COMPLETENESS:
-- Ensure every entity connects to at least one other entity
-- Ensure there's a path from every entity back to a main company (directly or indirectly)
-- No orphaned entities allowed
-
-OUTPUT FORMAT:
-Return a JSON object with exactly this structure:
+STEP 7: JSON OUTPUT
+Return this EXACT structure:
 
 {
   "entities": [
     {
       "name": "Exact Entity Name",
-      "type": "Company|Person|Topic", 
-      "description": "Single strategic sentence, 15 words max"
+      "type": "Company|Person|Topic",
+      "description": "Strategic description in 1-2 sentences"
     }
   ],
   "relationships": [
     {
       "source": "Source Entity Name",
       "target": "Target Entity Name", 
-      "description": "Active verb describing connection, under 10 words"
+      "description": "How they connect (active verb, under 10 words)"
     }
   ]
 }
 
-EXAMPLE:
-{
-  "entities": [
-    {
-      "name": "Rolex",
-      "type": "Company",
-      "description": "Swiss luxury watchmaker known for precision and brand prestige"
-    },
-    {
-      "name": "Luxury Goods Industry", 
-      "type": "Topic",
-      "description": "Industry focused on high-end premium consumer goods"
-    },
-    {
-      "name": "Branding",
-      "type": "Topic", 
-      "description": "Hamilton Helmer's 7th Power: customer loyalty beyond utilitarian value"
-    }
-  ],
-  "relationships": [
-    {
-      "source": "Rolex",
-      "target": "Luxury Goods Industry",
-      "description": "operates in luxury goods market"
-    },
-    {
-      "source": "Rolex", 
-      "target": "Branding",
-      "description": "leverages brand power as competitive advantage"
-    }
-  ]
-}
+EXAMPLES:
+- "Apple Watch" = Topic (it's a product, not a company)
+- "Apple" = Company (it's an organization)
+- "Tim Cook" = Person (individual)
+- "Branding" = Topic (strategic concept)
+- "Luxury Goods Industry" = Topic (industry)
 
-Remember: Be ruthlessly selective. Quality over quantity. Focus on strategic importance and the acquired universe oc characters and companies.`,
+Be selective - focus on entities central to the strategic story being told in this chunk.`,
         },
         {
           role: "user",
-          content: transcriptChunk, // Use the chunk here
+          content: transcriptChunk,
         },
       ],
       response_format: { type: "json_object" },
+      temperature: 0.1,
     })
 
     const content = response.choices[0].message.content
