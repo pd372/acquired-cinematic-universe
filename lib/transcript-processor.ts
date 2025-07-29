@@ -730,7 +730,7 @@ EPISODE CONTEXT:
 - Industry: ${episodeOverview.industry}
 - Key Topics: ${episodeOverview.keyTopics.join(", ")}
 
-TASK: Extract 8-12 strategically important entities from this chunk and create relationships between them.
+TASK: Extract 5-10 strategically important entities from this chunk and create relationships between them.
 
 STEP 1: EXTRACT ENTITIES
 Use ONLY these 3 types:
