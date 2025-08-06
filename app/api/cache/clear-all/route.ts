@@ -9,28 +9,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Get specific cache key from query params
-    const key = request.nextUrl.searchParams.get("key")
+    // Clear all server-side memory cache
+    clearCache()
 
-    // Clear server-side memory cache
-    clearCache(key || undefined)
-
-    // Create response with cache-busting headers
+    // Create response with comprehensive cache-busting headers
     const response = NextResponse.json({
       success: true,
-      message: key ? `Server cache cleared for key: ${key}` : "All server cache cleared",
+      message: "All server-side cache cleared",
       timestamp: Date.now(),
-      note: "Client-side localStorage cache should be cleared separately by the client"
+      instructions: {
+        clientSide: "To clear client-side cache, call clearClientCache() from useGraphData hook or clear localStorage manually",
+        testing: "For testing, add ?bypass=true to /api/graph to bypass all caching"
+      }
     })
 
-    // Add cache-busting headers to prevent HTTP caching
-    response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
+    // Add comprehensive cache-busting headers
+    response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate, proxy-revalidate")
     response.headers.set("Pragma", "no-cache")
     response.headers.set("Expires", "0")
+    response.headers.set("Surrogate-Control", "no-store")
 
     return response
   } catch (error) {
-    console.error("Error clearing cache:", error)
+    console.error("Error clearing all cache:", error)
     return NextResponse.json(
       { error: `Failed to clear cache: ${error instanceof Error ? error.message : String(error)}` },
       { status: 500 },

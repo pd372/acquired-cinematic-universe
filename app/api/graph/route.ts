@@ -9,8 +9,19 @@ export async function GET(request: NextRequest) {
   try {
     console.log("=== Graph API Request Started ===")
     
-    // Skip cache for debugging - remove this later
-    console.log("Bypassing cache for debugging...")
+    // Check if cache should be bypassed
+    const bypassCache = request.nextUrl.searchParams.get("bypass") === "true"
+    
+    if (!bypassCache) {
+      // Try to get from memory cache first
+      const cachedData = getCache("graph_data")
+      if (cachedData) {
+        console.log("Returning cached graph data")
+        return cachedResponse(cachedData, { ttl: CACHE_TTL })
+      }
+    } else {
+      console.log("Bypassing cache due to bypass=true parameter")
+    }
 
     // Fetch graph data from database
     const graphData = await getGraphData()
@@ -39,13 +50,25 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // Save to memory cache
-    setCache("graph_data", graphData, { ttl: CACHE_TTL })
+    // Save to memory cache only if not bypassing
+    if (!bypassCache) {
+      setCache("graph_data", graphData, { ttl: CACHE_TTL })
+    }
 
     console.log("=== Graph API Request Completed Successfully ===")
     
-    // Return response with cache headers
-    return cachedResponse(graphData, { ttl: CACHE_TTL })
+    // Return response with appropriate cache headers
+    if (bypassCache) {
+      // No cache headers when bypassing
+      const response = NextResponse.json(graphData)
+      response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
+      response.headers.set("Pragma", "no-cache")
+      response.headers.set("Expires", "0")
+      return response
+    } else {
+      // Normal cache headers
+      return cachedResponse(graphData, { ttl: CACHE_TTL })
+    }
   } catch (error) {
     console.error("Error fetching graph data:", error)
     console.error("Error stack:", error instanceof Error ? error.stack : 'No stack trace')

@@ -24,30 +24,37 @@ export function useGraphData() {
         setIsLoading(true)
         setError(null)
 
-        // Try to get data from localStorage first
-        const cachedData = getCachedData()
+        // Check for cache bypass flag in localStorage (for debugging)
+        const bypassCache = localStorage.getItem("bypass_graph_cache") === "true"
 
-        if (cachedData) {
-          console.log("Using cached graph data from localStorage")
-          console.log("Cached data:", {
-            nodes: cachedData.nodes?.length || 0,
-            links: cachedData.links?.length || 0
-          })
-          setGraphData(cachedData)
-          setIsLoading(false)
+        if (!bypassCache) {
+          // Try to get data from localStorage first
+          const cachedData = getCachedData()
 
-          // Refresh in background if cache is older than 5 minutes
-          if (Date.now() - cachedData.timestamp > 5 * 60 * 1000) {
-            console.log("Cache is stale, refreshing in background...")
-            refreshDataInBackground()
+          if (cachedData) {
+            console.log("Using cached graph data from localStorage")
+            console.log("Cached data:", {
+              nodes: cachedData.nodes?.length || 0,
+              links: cachedData.links?.length || 0
+            })
+            setGraphData(cachedData)
+            setIsLoading(false)
+
+            // Refresh in background if cache is older than 5 minutes
+            if (Date.now() - cachedData.timestamp > 5 * 60 * 1000) {
+              console.log("Cache is stale, refreshing in background...")
+              refreshDataInBackground()
+            }
+
+            return
           }
-
-          return
+        } else {
+          console.log("Bypassing localStorage cache due to bypass flag")
         }
 
         // No cache or expired, fetch from API
         console.log("No cache found, fetching from API...")
-        const data = await fetchFromApi()
+        const data = await fetchFromApi(bypassCache)
         setGraphData(data)
       } catch (err) {
         console.error("Error in fetchGraphData:", err)
@@ -59,7 +66,7 @@ export function useGraphData() {
 
     async function refreshDataInBackground() {
       try {
-        const data = await fetchFromApi()
+        const data = await fetchFromApi(false)
         console.log("Background refresh completed")
         setGraphData(data)
       } catch (error) {
@@ -68,9 +75,17 @@ export function useGraphData() {
       }
     }
 
-    async function fetchFromApi(): Promise<GraphData> {
-      console.log("Fetching from /api/graph...")
-      const response = await fetch("/api/graph")
+    async function fetchFromApi(bypassCache = false): Promise<GraphData> {
+      const url = bypassCache ? "/api/graph?bypass=true" : "/api/graph"
+      console.log(`Fetching from ${url}...`)
+      
+      const response = await fetch(url, {
+        // Add cache-busting headers when bypassing
+        headers: bypassCache ? {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache"
+        } : {}
+      })
 
       if (!response.ok) {
         const errorText = await response.text()
@@ -96,8 +111,10 @@ export function useGraphData() {
         throw new Error("Invalid data structure received from API")
       }
 
-      // Cache the data in localStorage
-      cacheData(data)
+      // Cache the data in localStorage only if not bypassing
+      if (!bypassCache) {
+        cacheData(data)
+      }
 
       return data
     }
@@ -144,5 +161,35 @@ export function useGraphData() {
     fetchGraphData()
   }, [])
 
-  return { graphData, isLoading, error }
+  // Function to clear client-side cache (can be called from components)
+  const clearClientCache = () => {
+    try {
+      localStorage.removeItem(GRAPH_CACHE_KEY)
+      localStorage.removeItem("bypass_graph_cache")
+      console.log("Client-side cache cleared")
+    } catch (error) {
+      console.error("Error clearing client-side cache:", error)
+    }
+  }
+
+  // Function to enable cache bypass (for debugging)
+  const enableCacheBypass = () => {
+    localStorage.setItem("bypass_graph_cache", "true")
+    console.log("Cache bypass enabled")
+  }
+
+  // Function to disable cache bypass
+  const disableCacheBypass = () => {
+    localStorage.removeItem("bypass_graph_cache")
+    console.log("Cache bypass disabled")
+  }
+
+  return { 
+    graphData, 
+    isLoading, 
+    error, 
+    clearClientCache, 
+    enableCacheBypass, 
+    disableCacheBypass 
+  }
 }
