@@ -20,6 +20,7 @@ export function useGraphData() {
   useEffect(() => {
     async function fetchGraphData() {
       try {
+        console.log("=== useGraphData: Starting fetch ===")
         setIsLoading(true)
         setError(null)
 
@@ -28,11 +29,16 @@ export function useGraphData() {
 
         if (cachedData) {
           console.log("Using cached graph data from localStorage")
+          console.log("Cached data:", {
+            nodes: cachedData.nodes?.length || 0,
+            links: cachedData.links?.length || 0
+          })
           setGraphData(cachedData)
           setIsLoading(false)
 
           // Refresh in background if cache is older than 5 minutes
           if (Date.now() - cachedData.timestamp > 5 * 60 * 1000) {
+            console.log("Cache is stale, refreshing in background...")
             refreshDataInBackground()
           }
 
@@ -40,11 +46,12 @@ export function useGraphData() {
         }
 
         // No cache or expired, fetch from API
+        console.log("No cache found, fetching from API...")
         const data = await fetchFromApi()
         setGraphData(data)
       } catch (err) {
+        console.error("Error in fetchGraphData:", err)
         setError(err instanceof Error ? err : new Error("Unknown error occurred"))
-        console.error("Error fetching graph data:", err)
       } finally {
         setIsLoading(false)
       }
@@ -53,6 +60,7 @@ export function useGraphData() {
     async function refreshDataInBackground() {
       try {
         const data = await fetchFromApi()
+        console.log("Background refresh completed")
         setGraphData(data)
       } catch (error) {
         console.error("Background refresh failed:", error)
@@ -61,13 +69,26 @@ export function useGraphData() {
     }
 
     async function fetchFromApi(): Promise<GraphData> {
+      console.log("Fetching from /api/graph...")
       const response = await fetch("/api/graph")
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch graph data: ${response.status}`)
+        const errorText = await response.text()
+        console.error("API response not ok:", response.status, errorText)
+        throw new Error(`Failed to fetch graph data: ${response.status} - ${errorText}`)
       }
 
       const data = await response.json()
+      console.log("API response received:", {
+        nodes: data.nodes?.length || 0,
+        links: data.links?.length || 0,
+        hasError: !!data.error
+      })
+
+      // Check for API error response
+      if (data.error) {
+        throw new Error(`API Error: ${data.error}${data.details ? ` - ${data.details}` : ''}`)
+      }
 
       // Check if the data has the expected structure
       if (!data || !data.nodes || !Array.isArray(data.nodes) || !data.links || !Array.isArray(data.links)) {
@@ -92,6 +113,7 @@ export function useGraphData() {
 
         // Check if cache is expired
         if (Date.now() - cached.timestamp > CACHE_TTL) {
+          console.log("Cache expired, removing...")
           localStorage.removeItem(GRAPH_CACHE_KEY)
           return null
         }
@@ -113,6 +135,7 @@ export function useGraphData() {
         }
 
         localStorage.setItem(GRAPH_CACHE_KEY, JSON.stringify(cacheObject))
+        console.log("Data cached successfully")
       } catch (error) {
         console.error("Error caching data:", error)
       }

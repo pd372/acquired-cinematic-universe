@@ -112,46 +112,43 @@ export async function createOrUpdateConnection(
   }
 }
 
-// Graph data retrieval - optimized to reduce number of queries
+// Simplified graph data retrieval
 export async function getGraphData() {
   try {
-    // Get all entities with their connection counts in a single query
-    const entitiesWithCounts = await sql`
-      WITH connection_counts AS (
-        SELECT 
-          "sourceEntityId" as entity_id, 
-          COUNT(*) as count 
-        FROM "Connection" 
-        GROUP BY "sourceEntityId"
-        UNION ALL
-        SELECT 
-          "targetEntityId" as entity_id, 
-          COUNT(*) as count 
-        FROM "Connection" 
-        GROUP BY "targetEntityId"
-      )
-      SELECT 
-        e.*, 
-        COALESCE(SUM(cc.count), 0) as connection_count,
-        COUNT(DISTINCT em."episodeId") as episode_count
-      FROM "Entity" e
-      LEFT JOIN connection_counts cc ON e.id = cc.entity_id
-      LEFT JOIN "EntityMention" em ON e.id = em."entityId"
-      GROUP BY e.id
+    console.log("=== Starting getGraphData ===")
+    
+    // First, let's get a simple count of entities
+    const entityCount = await sql`SELECT COUNT(*) as count FROM "Entity"`
+    console.log(`Total entities in database: ${entityCount[0]?.count || 0}`)
+    
+    // Get all entities first - simplified query
+    console.log("Fetching all entities...")
+    const allEntities = await sql`
+      SELECT id, name, type, description
+      FROM "Entity"
+      ORDER BY name
     `
+    
+    console.log(`Found ${allEntities.length} entities`)
+    if (allEntities.length > 0) {
+      console.log("First entity:", allEntities[0])
+    }
 
-    // Get all connections in a single query
-    const connections = await sql`
-      SELECT 
-        c."sourceEntityId",
-        c."targetEntityId",
-        c.strength,
-        c.description
-      FROM "Connection" c
+    // Get all connections
+    console.log("Fetching all connections...")
+    const allConnections = await sql`
+      SELECT "sourceEntityId", "targetEntityId", strength, description
+      FROM "Connection"
     `
+    
+    console.log(`Found ${allConnections.length} connections`)
+    if (allConnections.length > 0) {
+      console.log("First connection:", allConnections[0])
+    }
 
-    // Get episode details for each entity in a single query
-    const entityEpisodes = await sql`
+    // Get entity mentions for episodes
+    console.log("Fetching entity mentions...")
+    const entityMentions = await sql`
       SELECT 
         em."entityId", 
         e.id as "episodeId", 
@@ -161,42 +158,63 @@ export async function getGraphData() {
       FROM "EntityMention" em
       JOIN "Episode" e ON em."episodeId" = e.id
     `
+    
+    console.log(`Found ${entityMentions.length} entity mentions`)
 
-    // Process the data into the required format
-    const episodesByEntityId = entityEpisodes.reduce((acc: any, row: any) => {
-      if (!acc[row.entityId]) {
-        acc[row.entityId] = []
+    // Build episodes by entity map
+    const episodesByEntityId: Record<string, any[]> = {}
+    entityMentions.forEach((mention: any) => {
+      if (!episodesByEntityId[mention.entityId]) {
+        episodesByEntityId[mention.entityId] = []
       }
-      acc[row.entityId].push({
-        id: row.episodeId,
-        title: row.title,
-        url: row.url,
-        date: row.publishedAt ? new Date(row.publishedAt).toISOString().split("T")[0] : null,
+      episodesByEntityId[mention.entityId].push({
+        id: mention.episodeId,
+        title: mention.title,
+        url: mention.url,
+        date: mention.publishedAt ? new Date(mention.publishedAt).toISOString().split("T")[0] : null,
       })
-      return acc
-    }, {})
+    })
+
+    // Calculate connection counts for each entity
+    const connectionCounts: Record<string, number> = {}
+    allConnections.forEach((conn: any) => {
+      connectionCounts[conn.sourceEntityId] = (connectionCounts[conn.sourceEntityId] || 0) + 1
+      connectionCounts[conn.targetEntityId] = (connectionCounts[conn.targetEntityId] || 0) + 1
+    })
 
     // Format nodes
-    const nodes = entitiesWithCounts.map((entity: any) => ({
+    const nodes = allEntities.map((entity: any) => ({
       id: entity.id,
       name: entity.name,
       type: entity.type,
-      connections: Number.parseInt(entity.connection_count) || 0,
+      connections: connectionCounts[entity.id] || 0,
       description: entity.description,
       episodes: episodesByEntityId[entity.id] || [],
     }))
 
-    // Format links
-    const links = connections.map((conn: any) => ({
-      source: conn.sourceEntityId,
-      target: conn.targetEntityId,
-      value: conn.strength,
-      description: conn.description,
-    }))
+    // Format links - ensure both source and target exist
+    const entityIds = new Set(allEntities.map((e: any) => e.id))
+    const links = allConnections
+      .filter((conn: any) => entityIds.has(conn.sourceEntityId) && entityIds.has(conn.targetEntityId))
+      .map((conn: any) => ({
+        source: conn.sourceEntityId,
+        target: conn.targetEntityId,
+        value: conn.strength || 1,
+        description: conn.description,
+      }))
 
-    return { nodes, links }
+    console.log(`Processed ${nodes.length} nodes and ${links.length} valid links`)
+    console.log("Sample node:", nodes[0])
+    console.log("Sample link:", links[0])
+    
+    const result = { nodes, links }
+    console.log("=== getGraphData completed successfully ===")
+    
+    return result
   } catch (error) {
     console.error("Error in getGraphData:", error)
+    console.error("Error details:", error instanceof Error ? error.message : 'Unknown error')
+    console.error("Error stack:", error instanceof Error ? error.stack : 'No stack trace')
     throw error
   }
 }
