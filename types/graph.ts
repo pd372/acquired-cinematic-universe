@@ -14,7 +14,7 @@ export interface RelatedNode {
 export interface NodeData {
   id: string
   name: string
-  type: "Company" | "Person" | "Topic"
+  type: "Company" | "Person" | "Topic" | "Episode"
   connections: number
   description?: string
   episodes?: Episode[]
@@ -25,6 +25,7 @@ export interface LinkData {
   source: string
   target: string
   value: number
+  description?: string
 }
 
 export interface GraphData {

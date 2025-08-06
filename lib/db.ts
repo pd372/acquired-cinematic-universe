@@ -112,20 +112,17 @@ export async function createOrUpdateConnection(
   }
 }
 
-// Simplified graph data retrieval
+// Graph data retrieval - now includes Episode entities from extraction
 export async function getGraphData() {
   try {
     console.log("=== Starting getGraphData ===")
     
-    // First, let's get a simple count of entities
-    const entityCount = await sql`SELECT COUNT(*) as count FROM "Entity"`
-    console.log(`Total entities in database: ${entityCount[0]?.count || 0}`)
-    
-    // Get all entities first - simplified query
+    // Get all entities (now includes Episode type from extraction)
     console.log("Fetching all entities...")
     const allEntities = await sql`
       SELECT id, name, type, description
       FROM "Entity"
+      WHERE type IN ('Company', 'Person', 'Topic', 'Episode')
       ORDER BY name
     `
     
@@ -146,7 +143,7 @@ export async function getGraphData() {
       console.log("First connection:", allConnections[0])
     }
 
-    // Get entity mentions for episodes
+    // Get entity mentions for episodes (for non-Episode entities)
     console.log("Fetching entity mentions...")
     const entityMentions = await sql`
       SELECT 

@@ -29,7 +29,7 @@ export default function GraphVisualization() {
     // Clear previous graph
     svg.selectAll("*").remove()
 
-    // Create the simulation with reduced forces
+    // Create the simulation with episode-centric forces
     const simulation = d3
       .forceSimulation(graphData.nodes)
       .force(
@@ -37,17 +37,41 @@ export default function GraphVisualization() {
         d3
           .forceLink(graphData.links)
           .id((d: any) => d.id)
-          .distance(100),
+          .distance((d: any) => {
+            // Different distances based on node types
+            const sourceNode = graphData.nodes.find(n => n.id === (typeof d.source === 'string' ? d.source : d.source.id))
+            const targetNode = graphData.nodes.find(n => n.id === (typeof d.target === 'string' ? d.target : d.target.id))
+            
+            // Episode connections are longer to create clear hubs
+            if (sourceNode?.type === 'Episode' || targetNode?.type === 'Episode') return 150
+            return 80
+          })
+          .strength((d: any) => {
+            // Stronger force for episode connections
+            const sourceNode = graphData.nodes.find(n => n.id === (typeof d.source === 'string' ? d.source : d.source.id))
+            const targetNode = graphData.nodes.find(n => n.id === (typeof d.target === 'string' ? d.target : d.target.id))
+            
+            if (sourceNode?.type === 'Episode' || targetNode?.type === 'Episode') return 1
+            return 0.5
+          }),
       )
-      .force("charge", d3.forceManyBody().strength(-300))
+      .force("charge", d3.forceManyBody().strength((d: any) => {
+        // Episodes have stronger repulsion to spread them out as hubs
+        if (d.type === 'Episode') return -800
+        return -300
+      }))
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force(
         "collide",
-        d3.forceCollide().radius((d) => (d as NodeData).connections * 2 + 20),
+        d3.forceCollide().radius((d) => {
+          const node = d as NodeData
+          // Episodes are larger
+          if (node.type === 'Episode') return 30
+          return node.connections * 2 + 20
+        }),
       )
-      // Disable automatic alpha decay to prevent constant movement
-      .alphaDecay(0.05) // Increase decay rate to stabilize faster
-      .velocityDecay(0.7) // Increase velocity decay to reduce movement
+      .alphaDecay(0.05)
+      .velocityDecay(0.7)
 
     // Store simulation in ref for later use
     simulationRef.current = simulation
@@ -75,7 +99,14 @@ export default function GraphVisualization() {
       .selectAll("line")
       .data(graphData.links)
       .join("line")
-      .attr("stroke-width", (d: LinkData) => Math.sqrt(d.value))
+      .attr("stroke-width", (d: LinkData) => {
+        // Thicker lines for episode connections
+        const sourceNode = graphData.nodes.find(n => n.id === (typeof d.source === 'string' ? d.source : d.source.id))
+        const targetNode = graphData.nodes.find(n => n.id === (typeof d.target === 'string' ? d.target : d.target.id))
+        
+        if (sourceNode?.type === 'Episode' || targetNode?.type === 'Episode') return 3
+        return Math.sqrt(d.value)
+      })
       .attr("data-source", (d: any) => d.source.id || d.source)
       .attr("data-target", (d: any) => d.target.id || d.target)
 
@@ -98,19 +129,39 @@ export default function GraphVisualization() {
     // Add the circle for each node
     nodeGroup
       .append("circle")
-      .attr("r", (d: NodeData) => 3 + d.connections * 1)
-      .attr("fill", "#e0e0e0") // Keep original neutral color
+      .attr("r", (d: NodeData) => {
+        // Episodes are larger
+        if (d.type === 'Episode') return 15
+        return 3 + d.connections * 1
+      })
+      .attr("fill", "#e0e0e0") // Keep original neutral color for all nodes
       .attr("stroke", "#999")
       .attr("stroke-width", 1)
 
     // Add the text label for each node
     nodeGroup
       .append("text")
-      .attr("dx", (d: NodeData) => 8 + d.connections)
+      .attr("dx", (d: NodeData) => {
+        if (d.type === 'Episode') return 18
+        return 8 + d.connections
+      })
       .attr("dy", 4)
-      .attr("font-size", "10px")
+      .attr("font-size", (d: NodeData) => {
+        if (d.type === 'Episode') return "12px"
+        return "10px"
+      })
+      .attr("font-weight", (d: NodeData) => {
+        if (d.type === 'Episode') return "bold"
+        return "normal"
+      })
       .attr("pointer-events", "none")
-      .text((d: NodeData) => d.name)
+      .text((d: NodeData) => {
+        // Truncate long episode titles
+        if (d.type === 'Episode' && d.name.length > 30) {
+          return d.name.substring(0, 27) + '...'
+        }
+        return d.name
+      })
       .attr("fill", "#e0e0e0")
       .attr("class", "node-label")
 
@@ -148,7 +199,6 @@ export default function GraphVisualization() {
     window.addEventListener("resize", handleResize)
 
     // Run the simulation for a fixed number of ticks and then stop it
-    // This helps position the nodes initially without continuous movement
     simulation.alpha(1).restart()
 
     // Stop the simulation after a short time to prevent continuous movement
@@ -224,12 +274,16 @@ export default function GraphVisualization() {
       const targetId = typeof d.target === "string" ? d.target : d.target.id
 
       if (sourceId === nodeId || targetId === nodeId) {
+        const sourceNode = graphData.nodes.find(n => n.id === sourceId)
+        const targetNode = graphData.nodes.find(n => n.id === targetId)
+        const isEpisodeConnection = sourceNode?.type === 'Episode' || targetNode?.type === 'Episode'
+        
         d3.select(this)
           .transition()
           .duration(200)
           .attr("stroke", "#00E5C7")
           .attr("stroke-opacity", 1)
-          .attr("stroke-width", Math.sqrt(d.value) * 2)
+          .attr("stroke-width", isEpisodeConnection ? 5 : Math.sqrt(d.value) * 2)
       }
     })
 
@@ -262,14 +316,14 @@ export default function GraphVisualization() {
 
     const svg = d3.select(svgRef.current)
 
-    // Reset all nodes
+    // Reset all nodes to original color
     svg
       .selectAll(".node-group")
       .transition()
       .duration(200)
       .style("opacity", 1)
       .select("circle")
-      .attr("fill", "#e0e0e0") // Reset to original neutral color
+      .attr("fill", "#e0e0e0") // Keep original neutral color
       .attr("stroke", "#999")
       .attr("stroke-width", 1)
 
@@ -279,8 +333,14 @@ export default function GraphVisualization() {
       .select("text")
       .transition()
       .duration(200)
-      .attr("font-size", "10px")
-      .attr("font-weight", "normal")
+      .attr("font-size", (d: any) => {
+        if (d.type === 'Episode') return "12px"
+        return "10px"
+      })
+      .attr("font-weight", (d: any) => {
+        if (d.type === 'Episode') return "bold"
+        return "normal"
+      })
       .attr("fill", "#e0e0e0")
 
     // Reset all links
@@ -290,7 +350,13 @@ export default function GraphVisualization() {
       .duration(200)
       .attr("stroke", "#555")
       .attr("stroke-opacity", 0.4)
-      .attr("stroke-width", (d: any) => Math.sqrt(d.value))
+      .attr("stroke-width", (d: any) => {
+        const sourceNode = graphData?.nodes.find(n => n.id === (typeof d.source === 'string' ? d.source : d.source.id))
+        const targetNode = graphData?.nodes.find(n => n.id === (typeof d.target === 'string' ? d.target : d.target.id))
+        
+        if (sourceNode?.type === 'Episode' || targetNode?.type === 'Episode') return 3
+        return Math.sqrt(d.value)
+      })
       .style("opacity", 1)
   }
 

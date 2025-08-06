@@ -196,15 +196,15 @@ export async function processEpisode(episodeUrl: string): Promise<{
     const chunkResults = await processInParallel(
       chunks,
       async (chunk) => {
-        return extractEntitiesAndRelationships(chunk, title || "Untitled Episode", episodeOverview)
+        return extractEntitiesAndRelationships(chunk, title || "Untitled Episode", episodeOverview, episode.id)
       },
       OPENAI_CONCURRENCY_LIMIT,
     )
 
     chunkResults.forEach((result) => {
       result.entities.forEach((entity) => {
-        // STRICT TYPE VALIDATION - reject invalid types
-        if (!["Company", "Person", "Topic"].includes(entity.type)) {
+        // STRICT TYPE VALIDATION - now includes Episode
+        if (!["Company", "Person", "Topic", "Episode"].includes(entity.type)) {
           console.warn(`Rejecting entity with invalid type: ${entity.name} (${entity.type})`)
           return
         }
@@ -532,6 +532,9 @@ function filterStrategicEntities(entities: any[], episodeTitle: string): any[] {
   const alwaysKeep = entities.filter((entity) => {
     const name = entity.name.toLowerCase()
 
+    // Always keep Episodes
+    if (entity.type === "Episode") return true
+
     // Always keep 7 Powers
     const sevenPowers = [
       "scale economies",
@@ -582,6 +585,9 @@ function calculateStrategicScore(entity: any, episodeTitle: string): number {
 
   // Higher score for companies (main focus of Acquired)
   if (entity.type === "Company") score += 10
+
+  // Higher score for episodes
+  if (entity.type === "Episode") score += 15
 
   // Higher score for key people (founders, CEOs)
   if (entity.type === "Person") {
@@ -710,6 +716,7 @@ async function extractEntitiesAndRelationships(
   transcriptChunk: string,
   episodeTitle: string,
   episodeOverview: any,
+  episodeId: string,
 ): Promise<{
   entities: any[]
   relationships: any[]
@@ -730,23 +737,33 @@ EPISODE CONTEXT:
 - Industry: ${episodeOverview.industry}
 - Key Topics: ${episodeOverview.keyTopics.join(", ")}
 
-TASK: Extract 5-10 strategically important entities from this chunk and create relationships between them.
+TASK: Extract around 5 strategically important entities from this chunk and create relationships between them.
 
 STEP 1: EXTRACT ENTITIES
-Use ONLY these 3 types:
+Use ONLY these 4 types:
 - "Company": Business organizations (NOT products like "iPhone" or "Apple Watch")
 - "Person": Individual people (founders, CEOs, key executives)
 - "Topic": Everything else (products, industries, strategic concepts, Hamilton Helmer's 7 Powers)
+- "Episode": This specific episode being discussed (use the episode title)
 
-STEP 2: CATEGORIZE INTO ONE OF THE 3 BUCKETS
+STEP 2: CATEGORIZE INTO ONE OF THE 4 BUCKETS
 - Company: Apple, Microsoft, Rolex (organizations)
 - Person: Steve Jobs, Tim Cook, Morris Chang (individuals)
 - Topic: iPhone, Luxury Goods Industry, Branding, Scale Economies (concepts/products/industries)
+- Episode: "${episodeTitle}" (this specific episode)
 
 STEP 3: WRITE DESCRIPTIONS
 Each entity needs a brief strategic description (1-2 sentences max).
 
-STEP 4: MANDATORY - LOOK FOR HAMILTON HELMER'S 7 POWERS
+STEP 4: MANDATORY - ALWAYS INCLUDE THE EPISODE
+Always include this episode as an entity:
+{
+  "name": "${episodeTitle}",
+  "type": "Episode",
+  "description": "Acquired podcast episode discussing strategic business analysis"
+}
+
+STEP 5: MANDATORY - LOOK FOR HAMILTON HELMER'S 7 POWERS
 Always scan for these exact powers and create Topic entities if found:
 - "Scale Economies" - declining unit costs with increased production
 - "Network Economies" - value increases as customer base grows  
@@ -756,20 +773,26 @@ Always scan for these exact powers and create Topic entities if found:
 - "Cornered Resource" - preferential access to coveted asset
 - "Process Power" - embedded organization enabling lower costs
 
-STEP 5: MANDATORY - LOOK FOR OVERARCHING TOPIC/INDUSTRY
+STEP 6: MANDATORY - LOOK FOR OVERARCHING TOPIC/INDUSTRY
 Always include the primary industry as a Topic entity (e.g., "Luxury Goods Industry", "Semiconductor Industry").
 
-STEP 6: CREATE RELATIONSHIPS
-Connect entities with meaningful relationships. Every entity should connect to at least one other entity.
+STEP 7: CREATE RELATIONSHIPS
+Connect entities with meaningful relationships. EVERY entity must connect to the episode either directly or through another entity.
 
-STEP 7: JSON OUTPUT
+STEP 8: ENSURE EPISODE CONNECTIVITY
+Every entity must have a path back to the episode. Examples:
+- Company → Episode (directly mentioned)
+- Person → Company → Episode (person works at company mentioned in episode)
+- Topic → Company → Episode (topic relates to company mentioned in episode)
+
+STEP 9: JSON OUTPUT
 Return this EXACT structure:
 
 {
   "entities": [
     {
       "name": "Exact Entity Name",
-      "type": "Company|Person|Topic",
+      "type": "Company|Person|Topic|Episode",
       "description": "Strategic description in 1-2 sentences"
     }
   ],
@@ -788,8 +811,9 @@ EXAMPLES:
 - "Tim Cook" = Person (individual)
 - "Branding" = Topic (strategic concept)
 - "Luxury Goods Industry" = Topic (industry)
+- "${episodeTitle}" = Episode (this specific episode)
 
-Be selective - focus on entities central to the strategic story being told in this chunk.`,
+Be selective - focus on entities central to the strategic story being told in this chunk, and ensure everything connects back to the episode.`,
         },
         {
           role: "user",
