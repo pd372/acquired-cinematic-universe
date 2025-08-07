@@ -1,13 +1,37 @@
-import { neon } from "@neondatabase/serverless"
-import { v4 as uuidv4 } from "uuid"
+import { neon } from '@neondatabase/serverless'
+import { v4 as uuidv4 } from 'uuid'
 
-// Check if DATABASE_URL is set
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL is not set')
 }
 
-// Create a SQL client using the DATABASE_URL environment variable
-const sql = neon(process.env.DATABASE_URL)
+export const sql = neon(process.env.DATABASE_URL)
+
+export interface GraphNode {
+  id: string
+  name: string
+  type: string
+  connections: number
+  description?: string
+  episodes?: Array<{
+    id: string
+    title: string
+    url?: string
+    date?: string
+  }>
+}
+
+export interface GraphLink {
+  source: string
+  target: string
+  value: number
+  description?: string
+}
+
+export interface GraphData {
+  nodes: GraphNode[]
+  links: GraphLink[]
+}
 
 // Export the db client for other modules to use
 export const db = sql
@@ -120,112 +144,12 @@ export async function createOrUpdateConnection(
   }
 }
 
-// Create episode-centric graph that eliminates duplicates and ensures connectivity
-function createEpisodeCentricGraph(entities: any[], connections: any[]) {
-  console.log("Creating episode-centric graph...")
-  
-  // Separate episodes from other entities
-  const episodes = entities.filter(e => e.type === 'Episode')
-  const nonEpisodeEntities = entities.filter(e => e.type !== 'Episode')
-  
-  console.log(`Found ${episodes.length} episodes and ${nonEpisodeEntities.length} non-episode entities`)
-  
-  // Find duplicates: non-episode entities that have the same name as an episode
-  const episodeNames = new Set(episodes.map(e => e.name.toLowerCase()))
-  const duplicateEntities = nonEpisodeEntities.filter(e => 
-    episodeNames.has(e.name.toLowerCase())
-  )
-  
-  console.log(`Found ${duplicateEntities.length} duplicate entities to remove:`, 
-    duplicateEntities.map(e => `${e.name} (${e.type})`))
-  
-  // Keep only non-duplicate entities
-  const cleanedNonEpisodeEntities = nonEpisodeEntities.filter(e => 
-    !episodeNames.has(e.name.toLowerCase())
-  )
-  
-  // Create mapping from duplicate entity IDs to episode IDs
-  const duplicateToEpisodeMap: Record<string, string> = {}
-  duplicateEntities.forEach(duplicate => {
-    const matchingEpisode = episodes.find(ep => 
-      ep.name.toLowerCase() === duplicate.name.toLowerCase()
-    )
-    if (matchingEpisode) {
-      duplicateToEpisodeMap[duplicate.id] = matchingEpisode.id
-    }
-  })
-  
-  // Final entity list: episodes + cleaned non-episode entities
-  const finalEntities = [...episodes, ...cleanedNonEpisodeEntities]
-  const finalEntityIds = new Set(finalEntities.map(e => e.id))
-  
-  // Update connections: redirect duplicate references to episodes
-  const updatedConnections = connections
-    .map(conn => ({
-      ...conn,
-      sourceEntityId: duplicateToEpisodeMap[conn.sourceEntityId] || conn.sourceEntityId,
-      targetEntityId: duplicateToEpisodeMap[conn.targetEntityId] || conn.targetEntityId
-    }))
-    .filter(conn => 
-      finalEntityIds.has(conn.sourceEntityId) && 
-      finalEntityIds.has(conn.targetEntityId) &&
-      conn.sourceEntityId !== conn.targetEntityId // Remove self-loops
-    )
-  
-  // Find entities that have no connections
-  const connectedEntityIds = new Set()
-  updatedConnections.forEach(conn => {
-    connectedEntityIds.add(conn.sourceEntityId)
-    connectedEntityIds.add(conn.targetEntityId)
-  })
-  
-  const orphanedEntities = cleanedNonEpisodeEntities.filter(e => 
-    !connectedEntityIds.has(e.id)
-  )
-  
-  console.log(`Found ${orphanedEntities.length} orphaned entities to connect to episodes`)
-  
-  // Connect orphaned entities to their episodes via EntityMention
-  const orphanConnections: any[] = []
-  orphanedEntities.forEach(orphan => {
-    // Find episodes that mention this entity
-    const mentioningEpisodes = episodes.filter(episode => 
-      orphan.episodes && orphan.episodes.some((ep: any) => ep.id === episode.id)
-    )
-    
-    if (mentioningEpisodes.length > 0) {
-      // Connect to the first mentioning episode
-      orphanConnections.push({
-        sourceEntityId: orphan.id,
-        targetEntityId: mentioningEpisodes[0].id,
-        strength: 1,
-        description: "mentioned in episode"
-      })
-    } else if (episodes.length > 0) {
-      // Fallback: connect to the first episode
-      orphanConnections.push({
-        sourceEntityId: orphan.id,
-        targetEntityId: episodes[0].id,
-        strength: 1,
-        description: "mentioned in episode"
-      })
-    }
-  })
-  
-  const allConnections = [...updatedConnections, ...orphanConnections]
-  
-  console.log(`Final graph: ${finalEntities.length} entities, ${allConnections.length} connections`)
-  console.log(`Removed ${duplicateEntities.length} duplicates, connected ${orphanedEntities.length} orphans`)
-  
-  return { entities: finalEntities, connections: allConnections }
-}
-
-// Graph data retrieval with episode-centric model
-export async function getGraphData() {
+// Graph data retrieval - fetches data as it exists in the database
+export async function getGraphData(): Promise<GraphData> {
   try {
     console.log("=== Starting getGraphData ===")
     
-    // Get all entities (now includes Episode type from extraction)
+    // Get all entities
     console.log("Fetching all entities...")
     const allEntities = await sql`
       SELECT id, name, type, description
@@ -235,9 +159,6 @@ export async function getGraphData() {
     `
     
     console.log(`Found ${allEntities.length} entities`)
-    if (allEntities.length > 0) {
-      console.log("First entity:", allEntities[0])
-    }
 
     // Get all connections
     console.log("Fetching all connections...")
@@ -247,11 +168,8 @@ export async function getGraphData() {
     `
     
     console.log(`Found ${allConnections.length} connections`)
-    if (allConnections.length > 0) {
-      console.log("First connection:", allConnections[0])
-    }
 
-    // Get entity mentions for episodes (for non-Episode entities)
+    // Get entity mentions for episodes
     console.log("Fetching entity mentions...")
     const entityMentions = await sql`
       SELECT 
@@ -280,44 +198,35 @@ export async function getGraphData() {
       })
     })
 
-    // Add episode info to entities
-    const entitiesWithEpisodes = allEntities.map((entity: any) => ({
-      ...entity,
-      episodes: episodesByEntityId[entity.id] || [],
-    }))
-
-    // Create episode-centric graph (removes duplicates and ensures connectivity)
-    const { entities: cleanedEntities, connections: cleanedConnections } = 
-      createEpisodeCentricGraph(entitiesWithEpisodes, allConnections)
-
     // Calculate connection counts for each entity
     const connectionCounts: Record<string, number> = {}
-    cleanedConnections.forEach((conn: any) => {
+    allConnections.forEach((conn: any) => {
       connectionCounts[conn.sourceEntityId] = (connectionCounts[conn.sourceEntityId] || 0) + 1
       connectionCounts[conn.targetEntityId] = (connectionCounts[conn.targetEntityId] || 0) + 1
     })
 
     // Format nodes - all nodes use the same sizing formula
-    const nodes = cleanedEntities.map((entity: any) => ({
+    const nodes = allEntities.map((entity: any) => ({
       id: entity.id,
       name: entity.name,
       type: entity.type,
       connections: connectionCounts[entity.id] || 0,
       description: entity.description,
-      episodes: entity.episodes || [],
+      episodes: episodesByEntityId[entity.id] || [],
     }))
 
-    // Format links
-    const links = cleanedConnections.map((conn: any) => ({
-      source: conn.sourceEntityId,
-      target: conn.targetEntityId,
-      value: conn.strength || 1,
-      description: conn.description,
-    }))
+    // Format links - ensure both source and target exist
+    const entityIds = new Set(allEntities.map((e: any) => e.id))
+    const links = allConnections
+      .filter((conn: any) => entityIds.has(conn.sourceEntityId) && entityIds.has(conn.targetEntityId))
+      .map((conn: any) => ({
+        source: conn.sourceEntityId,
+        target: conn.targetEntityId,
+        value: conn.strength || 1,
+        description: conn.description,
+      }))
 
     console.log(`Processed ${nodes.length} nodes and ${links.length} valid links`)
-    console.log("Sample node:", nodes[0])
-    console.log("Sample link:", links[0])
     
     const result = { nodes, links }
     console.log("=== getGraphData completed successfully ===")
@@ -325,10 +234,6 @@ export async function getGraphData() {
     return result
   } catch (error) {
     console.error("Error in getGraphData:", error)
-    console.error("Error details:", error instanceof Error ? error.message : 'Unknown error')
-    console.error("Error stack:", error instanceof Error ? error.stack : 'No stack trace')
     throw error
   }
 }
-
-export default sql

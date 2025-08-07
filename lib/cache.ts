@@ -1,38 +1,44 @@
-import { unstable_cache } from 'next/cache'
+// In-memory cache for server-side data
+const cache = new Map<string, { data: any; timestamp: number; ttl?: number }>()
 
-const CACHE_TAGS = {
-  GRAPH_DATA: 'graph-data',
-  ENTITIES: 'entities',
-  RELATIONSHIPS: 'relationships',
-  EPISODES: 'episodes'
-} as const
-
-export function createCachedFunction<T extends any[], R>(
-  fn: (...args: T) => Promise<R>,
-  keyParts: string[],
-  tags: string[] = [],
-  revalidate?: number
-) {
-  return unstable_cache(fn, keyParts, {
-    tags,
-    revalidate
-  })
+interface CacheOptions {
+  ttl?: number // Time to live in seconds
 }
 
-export function getCacheKey(...parts: (string | number)[]): string {
-  return parts.join(':')
+export function getCache(key: string): any | null {
+  const entry = cache.get(key)
+  if (!entry) {
+    return null
+  }
+
+  // Check if expired
+  if (entry.ttl && Date.now() - entry.timestamp > entry.ttl * 1000) {
+    cache.delete(key)
+    return null
+  }
+
+  return entry.data
 }
 
-export async function clearCache(tag: string): Promise<void> {
-  const { revalidateTag } = await import('next/cache')
-  revalidateTag(tag)
+export function setCache(key: string, data: any, options?: CacheOptions): void {
+  cache.set(key, { data, timestamp: Date.now(), ttl: options?.ttl })
 }
 
-export async function clearAllCache(): Promise<void> {
-  const { revalidateTag } = await import('next/cache')
-  Object.values(CACHE_TAGS).forEach(tag => {
-    revalidateTag(tag)
-  })
+export function clearCache(key: string): boolean {
+  return cache.delete(key)
 }
 
-export { CACHE_TAGS }
+export function clearAllCache(): void {
+  cache.clear()
+}
+
+// Helper for cached responses (e.g., for Next.js API routes)
+export function cachedResponse(data: any, options?: CacheOptions): Response {
+  const response = NextResponse.json(data)
+  if (options?.ttl) {
+    response.headers.set('Cache-Control', `public, max-age=${options.ttl}, must-revalidate`)
+  } else {
+    response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+  }
+  return response
+}

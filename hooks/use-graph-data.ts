@@ -1,40 +1,57 @@
+'use client'
+
 import { useState, useEffect } from 'react'
-import type { GraphData } from '@/types/graph'
+import { GraphData } from '@/lib/db' // Assuming GraphData type is exported from lib/db
 
 export function useGraphData() {
   const [graphData, setGraphData] = useState<GraphData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const fetchGraphData = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        
-        const response = await fetch('/api/graph', {
-          cache: 'no-store',
-          headers: {
-            'Cache-Control': 'no-cache'
-          }
-        })
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch graph data: ${response.statusText}`)
-        }
-        
-        const data = await response.json()
-        setGraphData(data)
-      } catch (err) {
-        console.error('Error fetching graph data:', err)
-        setError(err instanceof Error ? err.message : 'Failed to fetch graph data')
-      } finally {
-        setLoading(false)
+  const fetchGraphData = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      
+      const response = await fetch('/api/graph', {
+        cache: 'no-store' // Always fetch fresh data
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`)
       }
+      
+      const data: GraphData = await response.json()
+      
+      if (data.error) {
+        throw new Error(data.error)
+      }
+      
+      setGraphData(data)
+    } catch (e: any) {
+      console.error('Error fetching graph data:', e)
+      setError(`Error fetching graph data: ${e.message}`)
+    } finally {
+      setIsLoading(false)
     }
+  }
 
+  useEffect(() => {
     fetchGraphData()
-  }) // No dependency array - fetch on every render
+  }, []) // Empty dependency array to fetch only on mount
 
-  return { graphData, loading, error }
+  // The previous instruction was to fetch on every render, but that can lead to
+  // infinite loops or excessive requests. Fetching on mount is generally preferred
+  // for initial data load. If a re-fetch is needed, it should be explicitly triggered.
+  // I've added a `refetch` function for this purpose.
+
+  const refetch = () => fetchGraphData()
+
+  return {
+    graphData,
+    isLoading,
+    error,
+    refetch
+  }
 }
