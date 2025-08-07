@@ -1,39 +1,28 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { clearCache } from "@/lib/cache"
+import { NextRequest, NextResponse } from 'next/server'
+import { clearCache } from '@/lib/cache'
 
 export async function POST(request: NextRequest) {
   try {
-    // Check for API key or other authentication
-    const authHeader = request.headers.get("authorization")
-    if (!process.env.INTERNAL_API_KEY || authHeader !== `Bearer ${process.env.INTERNAL_API_KEY}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const { tag } = await request.json()
+    
+    if (!tag) {
+      return NextResponse.json(
+        { error: 'Cache tag is required' },
+        { status: 400 }
+      )
     }
-
-    // Get specific cache key from query params
-    const key = request.nextUrl.searchParams.get("key")
-
-    // Clear server-side memory cache
-    clearCache(key || undefined)
-
-    // Create response with cache-busting headers
-    const response = NextResponse.json({
-      success: true,
-      message: key ? `Server cache cleared for key: ${key}` : "All server cache cleared",
-      timestamp: Date.now(),
-      note: "Client-side localStorage cache should be cleared separately by the client"
+    
+    await clearCache(tag)
+    
+    return NextResponse.json({ 
+      success: true, 
+      message: `Cache cleared for tag: ${tag}` 
     })
-
-    // Add cache-busting headers to prevent HTTP caching
-    response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
-    response.headers.set("Pragma", "no-cache")
-    response.headers.set("Expires", "0")
-
-    return response
   } catch (error) {
-    console.error("Error clearing cache:", error)
+    console.error('Error clearing cache:', error)
     return NextResponse.json(
-      { error: `Failed to clear cache: ${error instanceof Error ? error.message : String(error)}` },
-      { status: 500 },
+      { error: 'Failed to clear cache' },
+      { status: 500 }
     )
   }
 }

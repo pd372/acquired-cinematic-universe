@@ -3,7 +3,7 @@
 import { useRef, useEffect } from "react"
 import type { NodeData } from "@/types/graph"
 import { Badge } from "@/components/ui/badge"
-import { ExternalLink, X } from "lucide-react"
+import { ExternalLink, X } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 
 interface NodeDetailModalProps {
@@ -11,7 +11,7 @@ interface NodeDetailModalProps {
   onClose: () => void
 }
 
-export default function NodeDetailModal({ node, onClose }: NodeDetailModalProps) {
+export function NodeDetailModal({ node, onClose }: NodeDetailModalProps) {
   const modalRef = useRef<HTMLDivElement>(null)
 
   // Close on escape key
@@ -110,3 +110,6 @@ export default function NodeDetailModal({ node, onClose }: NodeDetailModalProps)
     </div>
   )
 }
+
+// Also export as default for backward compatibility
+export default NodeDetailModal

@@ -338,15 +338,19 @@ export async function processEpisode(episodeUrl: string): Promise<{
       consolidatedRelationships,
     )
 
+    // CRITICAL: Remove duplicate episode/company names and ensure episode connectivity
+    const { entities: deduplicatedEntities, relationships: episodeCentricRelationships } = 
+      createEpisodeCentricGraph(entitiesWithLuxury, relationshipsWithLuxury, title || "Untitled Episode")
+
     // FINAL FILTERING: Keep only the most strategic entities
-    const strategicEntities = filterStrategicEntities(entitiesWithLuxury, title || "Untitled Episode")
-    const filteredRelationships = relationshipsWithLuxury.filter((rel) => {
+    const strategicEntities = filterStrategicEntities(deduplicatedEntities, title || "Untitled Episode")
+    const filteredRelationships = episodeCentricRelationships.filter((rel) => {
       const sourceExists = strategicEntities.some((e) => e.name === rel.source)
       const targetExists = strategicEntities.some((e) => e.name === rel.target)
       return sourceExists && targetExists
     })
 
-    console.log(`Final filtering: ${entitiesWithLuxury.length} → ${strategicEntities.length} entities`)
+    console.log(`Final filtering: ${deduplicatedEntities.length} → ${strategicEntities.length} entities`)
 
     // Declare 'now' before using it
     const now = new Date()
@@ -388,6 +392,101 @@ export async function processEpisode(episodeUrl: string): Promise<{
   } catch (error) {
     console.error(`Error processing episode ${episodeUrl}:`, error)
     return { success: false, message: `Error: ${error instanceof Error ? error.message : String(error)}` }
+  }
+}
+
+// NEW: Function to create episode-centric graph and remove duplicates
+function createEpisodeCentricGraph(
+  entities: any[], 
+  relationships: any[], 
+  episodeTitle: string
+): { entities: any[]; relationships: any[] } {
+  console.log("Creating episode-centric graph and removing duplicates...")
+
+  // Find the episode entity
+  const episodeEntity = entities.find(e => e.type === "Episode" && e.name === episodeTitle)
+  if (!episodeEntity) {
+    console.error("Episode entity not found!")
+    return { entities, relationships }
+  }
+
+  // Check for duplicate names between episode and other entities
+  const duplicateNames = new Set<string>()
+  const episodeName = episodeTitle.toLowerCase()
+  
+  entities.forEach(entity => {
+    if (entity.type !== "Episode" && entity.name.toLowerCase() === episodeName) {
+      duplicateNames.add(entity.name.toLowerCase())
+      console.log(`Found duplicate: Episode "${episodeTitle}" and ${entity.type} "${entity.name}"`)
+    }
+  })
+
+  // Remove duplicate entities (keep only the episode)
+  const deduplicatedEntities = entities.filter(entity => {
+    if (entity.type === "Episode") return true
+    return !duplicateNames.has(entity.name.toLowerCase())
+  })
+
+  console.log(`Removed ${entities.length - deduplicatedEntities.length} duplicate entities`)
+
+  // Update relationships to point to episode instead of removed duplicates
+  const updatedRelationships = relationships.map(rel => {
+    let newSource = rel.source
+    let newTarget = rel.target
+
+    // If source was a duplicate, point to episode
+    if (duplicateNames.has(rel.source.toLowerCase()) && rel.source.toLowerCase() === episodeName) {
+      newSource = episodeTitle
+    }
+
+    // If target was a duplicate, point to episode
+    if (duplicateNames.has(rel.target.toLowerCase()) && rel.target.toLowerCase() === episodeName) {
+      newTarget = episodeTitle
+    }
+
+    return {
+      ...rel,
+      source: newSource,
+      target: newTarget
+    }
+  })
+
+  // Ensure every non-episode entity connects to the episode
+  const episodeCentricRelationships = [...updatedRelationships]
+  const connectedToEpisode = new Set<string>()
+  
+  // Track which entities are already connected to the episode
+  updatedRelationships.forEach(rel => {
+    if (rel.source === episodeTitle) {
+      connectedToEpisode.add(rel.target)
+    }
+    if (rel.target === episodeTitle) {
+      connectedToEpisode.add(rel.source)
+    }
+  })
+
+  // Connect any unconnected entities to the episode
+  deduplicatedEntities.forEach(entity => {
+    if (entity.type !== "Episode" && !connectedToEpisode.has(entity.name)) {
+      console.log(`Connecting orphaned entity "${entity.name}" to episode "${episodeTitle}"`)
+      episodeCentricRelationships.push({
+        source: entity.name,
+        target: episodeTitle,
+        description: "mentioned in episode"
+      })
+    }
+  })
+
+  // Remove self-referencing relationships
+  const cleanedRelationships = episodeCentricRelationships.filter(rel => 
+    rel.source !== rel.target
+  )
+
+  console.log(`Episode-centric graph: ${deduplicatedEntities.length} entities, ${cleanedRelationships.length} relationships`)
+  
+  return { 
+    entities: deduplicatedEntities, 
+    relationships: cleanedRelationships 
   }
 }
 
@@ -737,20 +836,22 @@ EPISODE CONTEXT:
 - Industry: ${episodeOverview.industry}
 - Key Topics: ${episodeOverview.keyTopics.join(", ")}
 
+CRITICAL RULE: If the episode title matches a company name (e.g., episode "Rolex" discussing Rolex company), DO NOT create a separate Company entity. The Episode entity serves as both the episode and the company.
+
 TASK: Extract around 5 strategically important entities from this chunk and create relationships between them.
 
 STEP 1: EXTRACT ENTITIES
 Use ONLY these 4 types:
-- "Company": Business organizations (NOT products like "iPhone" or "Apple Watch")
+- "Company": Business organizations (NOT products like "iPhone" or "Apple Watch") - BUT skip if episode title is the same company name
 - "Person": Individual people (founders, CEOs, key executives)
 - "Topic": Everything else (products, industries, strategic concepts, Hamilton Helmer's 7 Powers)
 - "Episode": This specific episode being discussed (use the episode title)
 
 STEP 2: CATEGORIZE INTO ONE OF THE 4 BUCKETS
-- Company: Apple, Microsoft, Rolex (organizations)
+- Company: Apple, Microsoft (organizations) - SKIP if episode title matches
 - Person: Steve Jobs, Tim Cook, Morris Chang (individuals)
 - Topic: iPhone, Luxury Goods Industry, Branding, Scale Economies (concepts/products/industries)
-- Episode: "${episodeTitle}" (this specific episode)
+- Episode: "${episodeTitle}" (this specific episode - serves as company too if names match)
 
 STEP 3: WRITE DESCRIPTIONS
 Each entity needs a brief strategic description (1-2 sentences max).
@@ -781,9 +882,9 @@ Connect entities with meaningful relationships. EVERY entity must connect to the
 
 STEP 8: ENSURE EPISODE CONNECTIVITY
 Every entity must have a path back to the episode. Examples:
-- Company → Episode (directly mentioned)
-- Person → Company → Episode (person works at company mentioned in episode)
-- Topic → Company → Episode (topic relates to company mentioned in episode)
+- Person → Episode (person mentioned in episode)
+- Topic → Episode (topic discussed in episode)
+- Company → Episode (company discussed in episode)
 
 STEP 9: JSON OUTPUT
 Return this EXACT structure:
@@ -806,12 +907,11 @@ Return this EXACT structure:
 }
 
 EXAMPLES:
+- Episode "Rolex" discussing Rolex company: Only create Episode "Rolex", NO separate Company "Rolex"
 - "Apple Watch" = Topic (it's a product, not a company)
-- "Apple" = Company (it's an organization)
 - "Tim Cook" = Person (individual)
 - "Branding" = Topic (strategic concept)
 - "Luxury Goods Industry" = Topic (industry)
-- "${episodeTitle}" = Episode (this specific episode)
 
 Be selective - focus on entities central to the strategic story being told in this chunk, and ensure everything connects back to the episode.`,
         },
