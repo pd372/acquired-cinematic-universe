@@ -8,9 +8,9 @@ export default function AboutPage() {
           <section>
             <h2 className="text-xl font-semibold mb-2">What is this?</h2>
             <p className="text-gray-300">
-              Acquired Cinematic Universe is an interactive knowledge graph visualization of the interconnected companies,
-              people, and topics discussed in the Acquired podcast. It allows you to explore the relationships between
-              different entities mentioned across episodes.
+              Acquired Cinematic Universe is an interactive knowledge graph visualization of the interconnected
+              companies, people, and topics discussed in the Acquired podcast. It allows you to explore the
+              relationships between different entities mentioned across episodes.
             </p>
           </section>
 
@@ -29,6 +29,7 @@ export default function AboutPage() {
               <li>Click and drag to pan around the visualization</li>
               <li>Scroll to zoom in and out</li>
               <li>Click on any node to see detailed information</li>
+              <li>Use the search bar to find and highlight specific nodes</li>
               <li>Larger nodes have more connections across episodes</li>
             </ul>
           </section>

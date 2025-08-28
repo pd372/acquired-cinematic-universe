@@ -1,7 +1,7 @@
-'use client'
+"use client"
 
-import { useState, useEffect } from 'react'
-import { GraphData } from '@/lib/db' // Assuming GraphData type is exported from lib/db
+import { useState, useEffect } from "react"
+import type { GraphData } from "@/types/graph"
 
 export function useGraphData() {
   const [graphData, setGraphData] = useState<GraphData | null>(null)
@@ -12,25 +12,25 @@ export function useGraphData() {
     try {
       setIsLoading(true)
       setError(null)
-      
-      const response = await fetch('/api/graph', {
-        cache: 'no-store' // Always fetch fresh data
+
+      const response = await fetch("/api/graph", {
+        cache: "no-store", // Always fetch fresh data
       })
-      
+
       if (!response.ok) {
         const errorText = await response.text()
         throw new Error(`HTTP error! status: ${response.status} - ${errorText}`)
       }
-      
+
       const data: GraphData = await response.json()
-      
+
       if (data.error) {
         throw new Error(data.error)
       }
-      
+
       setGraphData(data)
     } catch (e: any) {
-      console.error('Error fetching graph data:', e)
+      console.error("Error fetching graph data:", e)
       setError(`Error fetching graph data: ${e.message}`)
     } finally {
       setIsLoading(false)
@@ -52,6 +52,6 @@ export function useGraphData() {
     graphData,
     isLoading,
     error,
-    refetch
+    refetch,
   }
 }

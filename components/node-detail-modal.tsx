@@ -3,29 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ExternalLink, Calendar, Users, Hash } from "lucide-react"
-
-interface Episode {
-  id: string
-  title: string
-  url?: string
-  date?: string
-}
-
-interface RelatedNode {
-  id: string
-  name: string
-  type: string
-}
-
-interface NodeData {
-  id: string
-  name: string
-  type: string
-  connections: number
-  description?: string
-  episodes?: Episode[]
-  relatedNodes?: RelatedNode[]
-}
+import type { NodeData } from "@/types/graph"
 
 interface NodeDetailModalProps {
   node: NodeData | null

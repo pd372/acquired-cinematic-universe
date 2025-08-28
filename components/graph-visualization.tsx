@@ -4,36 +4,7 @@ import { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHand
 import * as d3 from "d3"
 import NodeDetailModal from "./node-detail-modal"
 import { useMobile } from "@/hooks/use-mobile"
-
-interface GraphNode {
-  id: string
-  name: string
-  type: string
-  connections: number
-  description?: string
-  episodes?: Array<{
-    id: string
-    title: string
-    url?: string
-    date?: string
-  }>
-  x?: number
-  y?: number
-  fx?: number | null
-  fy?: number | null
-}
-
-interface GraphLink {
-  source: string | GraphNode
-  target: string | GraphNode
-  value: number
-  description?: string
-}
-
-interface GraphData {
-  nodes: GraphNode[]
-  links: GraphLink[]
-}
+import type { NodeData, LinkData, GraphData } from "@/types/graph"
 
 interface GraphVisualizationProps {
   graphData?: GraphData | null
@@ -47,16 +18,16 @@ interface GraphVisualizationRef {
 const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationProps>(
   ({ graphData: propGraphData, selectedNodeId }, ref) => {
     const svgRef = useRef<SVGSVGElement | null>(null)
-    const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
+    const [selectedNode, setSelectedNode] = useState<NodeData | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [graphData, setGraphData] = useState<GraphData | null>(propGraphData || null)
     const [isLoading, setIsLoading] = useState(!propGraphData)
     const [error, setError] = useState<string | null>(null)
     const { isMobile } = useMobile()
 
-    const nodeSelection = useRef<d3.Selection<SVGCircleElement, GraphNode, SVGGElement, unknown> | null>(null)
-    const labelSelection = useRef<d3.Selection<SVGTextElement, GraphNode, SVGGElement, unknown> | null>(null)
-    const linkSelection = useRef<d3.Selection<SVGLineElement, GraphLink, SVGGElement, unknown> | null>(null)
+    const nodeSelection = useRef<d3.Selection<SVGCircleElement, NodeData, SVGGElement, unknown> | null>(null)
+    const labelSelection = useRef<d3.Selection<SVGTextElement, NodeData, SVGGElement, unknown> | null>(null)
+    const linkSelection = useRef<d3.Selection<SVGLineElement, LinkData, SVGGElement, unknown> | null>(null)
 
     useImperativeHandle(ref, () => ({
       highlightNode: (nodeId: string) => {
@@ -167,7 +138,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
       }
     }, [propGraphData])
 
-    const handleNodeClick = useCallback((event: MouseEvent, d: GraphNode) => {
+    const handleNodeClick = useCallback((event: MouseEvent, d: NodeData) => {
       setSelectedNode(d)
       setIsModalOpen(true)
     }, [])
@@ -216,11 +187,11 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
       svg.call(zoom as any)
 
       const simulation = d3
-        .forceSimulation<GraphNode, GraphLink>(graphData.nodes)
+        .forceSimulation<NodeData, LinkData>(graphData.nodes)
         .force(
           "link",
           d3
-            .forceLink<GraphNode, GraphLink>(graphData.links)
+            .forceLink<NodeData, LinkData>(graphData.links)
             .id((d) => d.id)
             .distance(120), // Increased distance to make room for labels
         )
@@ -229,7 +200,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
         .force(
           "collide",
           d3
-            .forceCollide<GraphNode>()
+            .forceCollide<NodeData>()
             .radius((d) => 3 + d.connections * 1 + 15) // More space for external labels
             .iterations(2),
         )
@@ -256,7 +227,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
         .attr("fill", "#6b7280") // Gray by default
         .style("cursor", "pointer")
         .attr("class", "graph-node")
-        .call(d3.drag<SVGCircleElement, GraphNode>().on("start", dragstarted).on("drag", dragged).on("end", dragended))
+        .call(d3.drag<SVGCircleElement, NodeData>().on("start", dragstarted).on("drag", dragged).on("end", dragended))
         .on("click", handleNodeClick)
         .on("mouseover", function (event, d) {
           // Highlight the hovered node with solid teal
@@ -342,28 +313,28 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
 
       simulation.on("tick", () => {
         link
-          .attr("x1", (d) => (d.source as GraphNode).x!)
-          .attr("y1", (d) => (d.source as GraphNode).y!)
-          .attr("x2", (d) => (d.target as GraphNode).x!)
-          .attr("y2", (d) => (d.target as GraphNode).y!)
+          .attr("x1", (d) => (d.source as NodeData).x!)
+          .attr("y1", (d) => (d.source as NodeData).y!)
+          .attr("x2", (d) => (d.target as NodeData).x!)
+          .attr("y2", (d) => (d.target as NodeData).y!)
 
         node.attr("cx", (d) => d.x!).attr("cy", (d) => d.y!)
 
         labels.attr("x", (d) => d.x!).attr("y", (d) => d.y!)
       })
 
-      function dragstarted(event: d3.D3DragEvent<SVGCircleElement, GraphNode, GraphNode>, d: GraphNode) {
+      function dragstarted(event: d3.D3DragEvent<SVGCircleElement, NodeData, NodeData>, d: NodeData) {
         if (!event.active) simulation.alphaTarget(0.3).restart()
         d.fx = d.x
         d.fy = d.y
       }
 
-      function dragged(event: d3.D3DragEvent<SVGCircleElement, GraphNode, GraphNode>, d: GraphNode) {
+      function dragged(event: d3.D3DragEvent<SVGCircleElement, NodeData, NodeData>, d: NodeData) {
         d.fx = event.x
         d.fy = event.y
       }
 
-      function dragended(event: d3.D3DragEvent<SVGCircleElement, GraphNode, GraphNode>, d: GraphNode) {
+      function dragended(event: d3.D3DragEvent<SVGCircleElement, NodeData, NodeData>, d: NodeData) {
         if (!event.active) simulation.alphaTarget(0)
         d.fx = null
         d.fy = null

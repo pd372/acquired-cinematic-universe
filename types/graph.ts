@@ -19,11 +19,15 @@ export interface NodeData {
   description?: string
   episodes?: Episode[]
   relatedNodes?: RelatedNode[]
+  x?: number
+  y?: number
+  fx?: number | null
+  fy?: number | null
 }
 
 export interface LinkData {
-  source: string
-  target: string
+  source: string | NodeData
+  target: string | NodeData
   value: number
   description?: string
 }
@@ -31,4 +35,5 @@ export interface LinkData {
 export interface GraphData {
   nodes: NodeData[]
   links: LinkData[]
+  error?: string
 }
