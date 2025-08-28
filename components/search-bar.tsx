@@ -125,7 +125,7 @@ export default function SearchBar({ onNodeSelect }: SearchBarProps) {
       {isOpen && filteredNodes.length > 0 && (
         <div
           ref={dropdownRef}
-          className="absolute z-50 mt-1 w-full bg-gray-800 border border-gray-700 rounded-md shadow-lg max-h-60 overflow-auto"
+          className="absolute z-[60] mt-1 w-full bg-gray-800 border border-gray-700 rounded-md shadow-lg max-h-60 overflow-auto"
         >
           <ul>
             {filteredNodes.map((node) => (

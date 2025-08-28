@@ -16,14 +16,12 @@ export default function Home() {
   }
 
   return (
-    <main className="h-screen flex flex-col bg-black text-white overflow-hidden">
-      <div className="w-full p-4 bg-black/50 backdrop-blur-sm border-b border-gray-800 flex-shrink-0">
-        <div className="max-w-md mx-auto">
-          <SearchBar onNodeSelect={handleNodeSelect} />
-        </div>
+    <main className="h-screen bg-black text-white overflow-hidden relative">
+      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4">
+        <SearchBar onNodeSelect={handleNodeSelect} />
       </div>
 
-      <div className="flex-1 w-full relative min-h-0">
+      <div className="w-full h-full">
         <Suspense fallback={<div className="flex items-center justify-center h-full">Loading graph...</div>}>
           <GraphVisualization ref={graphRef} selectedNodeId={selectedNodeId} />
         </Suspense>
