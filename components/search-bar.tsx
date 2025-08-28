@@ -1,15 +1,26 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect, useRef } from "react"
-import { Search, X } from "lucide-react"
 import type { NodeData } from "@/types/graph"
 import { useGraphData } from "@/hooks/use-graph-data"
 
 interface SearchBarProps {
   onNodeSelect: (nodeId: string) => void
 }
+
+const SearchIcon = () => (
+  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <circle cx="11" cy="11" r="8" />
+    <path d="m21 21-4.35-4.35" />
+  </svg>
+)
+
+const XIcon = () => (
+  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path d="M18 6L6 18M6 6l12 12" />
+  </svg>
+)
 
 export default function SearchBar({ onNodeSelect }: SearchBarProps) {
   const { graphData } = useGraphData()
@@ -98,13 +109,15 @@ export default function SearchBar({ onNodeSelect }: SearchBarProps) {
           className="w-full h-10 pl-10 pr-10 rounded-full bg-gray-800 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-[#00E5C7] focus:border-transparent shadow-lg"
           disabled={!hasData}
         />
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+          <SearchIcon />
+        </div>
         {searchTerm && (
           <button
             onClick={handleClear}
             className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
           >
-            <X className="h-4 w-4" />
+            <XIcon />
           </button>
         )}
       </div>

@@ -2,8 +2,39 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { ExternalLink, Calendar, Users, Hash } from "lucide-react"
 import type { NodeData } from "@/types/graph"
+
+const ExternalLinkIcon = () => (
+  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
+  </svg>
+)
+
+const CalendarIcon = () => (
+  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+    <line x1="16" y1="2" x2="16" y2="6" />
+    <line x1="8" y1="2" x2="8" y2="6" />
+    <line x1="3" y1="10" x2="21" y2="10" />
+  </svg>
+)
+
+const UsersIcon = () => (
+  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
+  </svg>
+)
+
+const HashIcon = () => (
+  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <line x1="4" y1="9" x2="20" y2="9" />
+    <line x1="4" y1="15" x2="20" y2="15" />
+    <line x1="10" y1="3" x2="8" y2="21" />
+    <line x1="16" y1="3" x2="14" y2="21" />
+  </svg>
+)
 
 interface NodeDetailModalProps {
   node: NodeData | null
@@ -63,13 +94,13 @@ export default function NodeDetailModal({ node, isOpen, onClose }: NodeDetailMod
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Hash className="h-4 w-4" />
+                <HashIcon />
                 Details
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-muted-foreground" />
+                <UsersIcon />
                 <span className="text-sm text-muted-foreground">Connections:</span>
                 <Badge variant="secondary">{node.connections}</Badge>
               </div>
@@ -87,7 +118,7 @@ export default function NodeDetailModal({ node, isOpen, onClose }: NodeDetailMod
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
+                  <CalendarIcon />
                   Episodes ({node.episodes.length})
                 </CardTitle>
                 <CardDescription>Episodes where this {node.type.toLowerCase()} is mentioned</CardDescription>
@@ -110,7 +141,7 @@ export default function NodeDetailModal({ node, isOpen, onClose }: NodeDetailMod
                             rel="noopener noreferrer"
                             className="ml-2 p-1 hover:bg-muted rounded"
                           >
-                            <ExternalLink className="h-3 w-3" />
+                            <ExternalLinkIcon />
                           </a>
                         )}
                       </div>
@@ -126,7 +157,7 @@ export default function NodeDetailModal({ node, isOpen, onClose }: NodeDetailMod
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Users className="h-4 w-4" />
+                  <UsersIcon />
                   Related Entities ({node.relatedNodes.length})
                 </CardTitle>
                 <CardDescription>Other entities connected to this {node.type.toLowerCase()}</CardDescription>
