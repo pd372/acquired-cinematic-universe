@@ -3,14 +3,27 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Home, Info } from "lucide-react"
+
+const HomeIcon = () => (
+  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+    <polyline points="9,22 9,12 15,12 15,22" />
+  </svg>
+)
+
+const InfoIcon = () => (
+  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 16v-4M12 8h.01" />
+  </svg>
+)
 
 export default function NavBar() {
   const pathname = usePathname()
 
   const navItems = [
-    { href: "/", label: "Graph", icon: Home },
-    { href: "/about", label: "About", icon: Info },
+    { href: "/", label: "Graph", icon: HomeIcon },
+    { href: "/about", label: "About", icon: InfoIcon },
   ]
 
   return (
@@ -29,8 +42,8 @@ export default function NavBar() {
                   : "text-gray-400 hover:text-white hover:bg-gray-800",
               )}
             >
-              <Icon className="h-5 w-5 mr-2" />
-              <span>{item.label}</span>
+              <Icon />
+              <span className="ml-2">{item.label}</span>
             </Link>
           )
         })}

@@ -11,7 +11,7 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "Acquired Cinematic Universe",
   description: "Interactive knowledge graph for the Acquired podcast",
-    generator: 'v0.dev'
+    generator: 'v0.app'
 }
 
 export default function RootLayout({
@@ -20,11 +20,11 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <body className={`${inter.className} bg-black text-white`}>
+    <html lang="en" className="h-full">
+      <body className={`${inter.className} bg-black text-white h-full overflow-hidden`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
           <NavBar />
-          <div className="pb-16 md:pt-16 md:pb-0">{children}</div>
+          <div className="h-full pt-16">{children}</div>
           <Toaster />
         </ThemeProvider>
       </body>
