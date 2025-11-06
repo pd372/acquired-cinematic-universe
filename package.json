@@ -8,8 +8,13 @@
     "lint": "next lint",
     "scrape": "tsx scripts/trigger-scrape.ts",
     "scrape:all": "tsx scripts/trigger-scrape.ts all",
+    "scrape-urls": "tsx scripts/scrape-all-episode-urls.ts",
     "start": "next start",
-    "test-db": "tsx scripts/test-db-connection.ts"
+    "test-db": "tsx scripts/test-db-connection.ts",
+    "bulk-process": "tsx scripts/bulk-process-episodes.ts",
+    "extract": "tsx scripts/extract-episodes.ts",
+    "resolve-entities": "tsx scripts/resolve-entities.ts",
+    "resolve-relationships": "tsx scripts/resolve-relationships.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "latest",

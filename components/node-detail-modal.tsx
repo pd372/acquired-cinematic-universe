@@ -124,7 +124,7 @@ export default function NodeDetailModal({ node, isOpen, onClose }: NodeDetailMod
                 <CardDescription>Episodes where this {node.type.toLowerCase()} is mentioned</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
+                <div className="space-y-3 max-h-[300px] overflow-y-auto">
                   {node.episodes.map((episode) => (
                     <div key={episode.id} className="border rounded-lg p-3">
                       <div className="flex items-start justify-between">

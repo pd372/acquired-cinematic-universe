@@ -9,6 +9,38 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
+// Retry utility with exponential backoff
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries = 5,
+  initialDelay = 1000,
+): Promise<T> {
+  let lastError: any
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (error: any) {
+      lastError = error
+
+      // Check if it's a rate limit error
+      const isRateLimit = error?.status === 429 || error?.code === 'rate_limit_exceeded'
+
+      if (!isRateLimit || attempt === maxRetries) {
+        throw error
+      }
+
+      // Calculate delay with exponential backoff
+      const delay = initialDelay * Math.pow(2, attempt)
+      console.log(`⏳ Rate limit hit, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`)
+
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+
+  throw lastError
+}
+
 // Function to fetch episode list from Acquired website
 export async function fetchEpisodesList(): Promise<{ title: string; url: string }[]> {
   console.log("Fetching episodes list...")
@@ -65,6 +97,8 @@ export async function processEpisode(episodeUrl: string): Promise<{
         success: true,
         message: `Episode already processed: ${existingEpisode.title}`,
         episodeId: existingEpisode.id,
+        rawEntities: 0,
+        rawRelationships: 0,
       }
     }
 
@@ -93,6 +127,8 @@ export async function processEpisode(episodeUrl: string): Promise<{
 
     // Try different possible selectors for the transcript
     const possibleSelectors = [
+      ".transcript-container",
+      ".rich-text-block-6",
       ".transcript-content",
       ".transcript",
       ".episode-transcript",
@@ -203,8 +239,8 @@ export async function processEpisode(episodeUrl: string): Promise<{
 
     chunkResults.forEach((result) => {
       result.entities.forEach((entity) => {
-        // STRICT TYPE VALIDATION - now includes Episode
-        if (!["Company", "Person", "Topic", "Episode"].includes(entity.type)) {
+        // STRICT TYPE VALIDATION - Only Person and Company
+        if (!["Company", "Person"].includes(entity.type)) {
           console.warn(`Rejecting entity with invalid type: ${entity.name} (${entity.type})`)
           return
         }
@@ -252,95 +288,9 @@ export async function processEpisode(episodeUrl: string): Promise<{
 
     console.log(`Consolidated from ${allExtractedEntities.length} to ${consolidatedEntities.length} entities`)
 
-    // Add luxury brand business logic
-    function addLuxuryBrandConnections(
-      entities: any[],
-      relationships: any[],
-    ): { entities: any[]; relationships: any[] } {
-      const luxuryBrands = [
-        "rolex",
-        "ferrari",
-        "louis vuitton",
-        "hermès",
-        "chanel",
-        "gucci",
-        "prada",
-        "cartier",
-        "tiffany",
-        "bulgari",
-        "patek philippe",
-        "lamborghini",
-        "bentley",
-        "rolls-royce",
-        "maserati",
-        "porsche",
-      ]
-
-      const updatedEntities = [...entities]
-      const updatedRelationships = [...relationships]
-
-      // Check if we have luxury brands and ensure proper connections
-      entities.forEach((entity) => {
-        if (entity.type === "Company" && luxuryBrands.some((brand) => entity.name.toLowerCase().includes(brand))) {
-          // Ensure Luxury Goods Industry exists
-          const hasLuxuryIndustry = entities.some((e) => e.name === "Luxury Goods Industry" && e.type === "Topic")
-
-          if (!hasLuxuryIndustry) {
-            updatedEntities.push({
-              name: "Luxury Goods Industry",
-              type: "Topic",
-              description: "Industry focused on high-end, premium consumer goods",
-            })
-          }
-
-          // Ensure Branding power exists
-          const hasBranding = entities.some((e) => e.name === "Branding" && e.type === "Topic")
-
-          if (!hasBranding) {
-            updatedEntities.push({
-              name: "Branding",
-              type: "Topic",
-              description: "Hamilton Helmer's 7th Power: customer loyalty beyond utilitarian value",
-            })
-          }
-
-          // Add required relationships
-          const hasIndustryConnection = relationships.some(
-            (r) => r.source === entity.name && r.target === "Luxury Goods Industry",
-          )
-
-          if (!hasIndustryConnection) {
-            updatedRelationships.push({
-              source: entity.name,
-              target: "Luxury Goods Industry",
-              description: "operates in the luxury goods market",
-            })
-          }
-
-          const hasBrandingConnection = relationships.some((r) => r.source === entity.name && r.target === "Branding")
-
-          if (!hasBrandingConnection) {
-            updatedRelationships.push({
-              source: entity.name,
-              target: "Branding",
-              description: "leverages brand power as competitive advantage",
-            })
-          }
-        }
-      })
-
-      return { entities: updatedEntities, relationships: updatedRelationships }
-    }
-
-    // Apply luxury brand business logic
-    const { entities: entitiesWithLuxury, relationships: relationshipsWithLuxury } = addLuxuryBrandConnections(
-      consolidatedEntities,
-      consolidatedRelationships,
-    )
-
-    // CRITICAL: Remove duplicate episode/company names and ensure episode connectivity
-    const { entities: deduplicatedEntities, relationships: episodeCentricRelationships } = 
-      createEpisodeCentricGraph(entitiesWithLuxury, relationshipsWithLuxury, title || "Untitled Episode")
+    // Use consolidated entities and relationships directly
+    const deduplicatedEntities = consolidatedEntities
+    const episodeCentricRelationships = consolidatedRelationships
 
     // FINAL FILTERING: Keep only the most strategic entities
     const strategicEntities = filterStrategicEntities(deduplicatedEntities, title || "Untitled Episode")
@@ -395,100 +345,6 @@ export async function processEpisode(episodeUrl: string): Promise<{
   }
 }
 
-// NEW: Function to create episode-centric graph and remove duplicates
-function createEpisodeCentricGraph(
-  entities: any[], 
-  relationships: any[], 
-  episodeTitle: string
-): { entities: any[]; relationships: any[] } {
-  console.log("Creating episode-centric graph and removing duplicates...")
-
-  // Find the episode entity
-  const episodeEntity = entities.find(e => e.type === "Episode" && e.name === episodeTitle)
-  if (!episodeEntity) {
-    console.error("Episode entity not found!")
-    return { entities, relationships }
-  }
-
-  // Check for duplicate names between episode and other entities
-  const duplicateNames = new Set<string>()
-  const episodeName = episodeTitle.toLowerCase()
-  
-  entities.forEach(entity => {
-    if (entity.type !== "Episode" && entity.name.toLowerCase() === episodeName) {
-      duplicateNames.add(entity.name.toLowerCase())
-      console.log(`Found duplicate: Episode "${episodeTitle}" and ${entity.type} "${entity.name}"`)
-    }
-  })
-
-  // Remove duplicate entities (keep only the episode)
-  const deduplicatedEntities = entities.filter(entity => {
-    if (entity.type === "Episode") return true
-    return !duplicateNames.has(entity.name.toLowerCase())
-  })
-
-  console.log(`Removed ${entities.length - deduplicatedEntities.length} duplicate entities`)
-
-  // Update relationships to point to episode instead of removed duplicates
-  const updatedRelationships = relationships.map(rel => {
-    let newSource = rel.source
-    let newTarget = rel.target
-
-    // If source was a duplicate, point to episode
-    if (duplicateNames.has(rel.source.toLowerCase()) && rel.source.toLowerCase() === episodeName) {
-      newSource = episodeTitle
-    }
-
-    // If target was a duplicate, point to episode
-    if (duplicateNames.has(rel.target.toLowerCase()) && rel.target.toLowerCase() === episodeName) {
-      newTarget = episodeTitle
-    }
-
-    return {
-      ...rel,
-      source: newSource,
-      target: newTarget
-    }
-  })
-
-  // Ensure every non-episode entity connects to the episode
-  const episodeCentricRelationships = [...updatedRelationships]
-  const connectedToEpisode = new Set<string>()
-  
-  // Track which entities are already connected to the episode
-  updatedRelationships.forEach(rel => {
-    if (rel.source === episodeTitle) {
-      connectedToEpisode.add(rel.target)
-    }
-    if (rel.target === episodeTitle) {
-      connectedToEpisode.add(rel.source)
-    }
-  })
-
-  // Connect any unconnected entities to the episode
-  deduplicatedEntities.forEach(entity => {
-    if (entity.type !== "Episode" && !connectedToEpisode.has(entity.name)) {
-      console.log(`Connecting orphaned entity "${entity.name}" to episode "${episodeTitle}"`)
-      episodeCentricRelationships.push({
-        source: entity.name,
-        target: episodeTitle,
-        description: "mentioned in episode"
-      })
-    }
-  })
-
-  // Remove self-referencing relationships
-  const cleanedRelationships = episodeCentricRelationships.filter(rel => 
-    rel.source !== rel.target
-  )
-
-  console.log(`Episode-centric graph: ${deduplicatedEntities.length} entities, ${cleanedRelationships.length} relationships`)
-  
-  return { 
-    entities: deduplicatedEntities, 
-    relationships: cleanedRelationships 
-  }
-}
 
 // NEW: Function to extract episode overview for cross-chunk context
 async function extractEpisodeOverview(
@@ -511,7 +367,7 @@ async function extractEpisodeOverview(
     const end = transcript.substring(transcript.length - sampleSize)
     const sample = `${beginning}\n\n[MIDDLE SECTION]\n${middle}\n\n[END SECTION]\n${end}`
 
-    const response = await openai.chat.completions.create({
+    const response = await retryWithBackoff(() => openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [
         {
@@ -541,7 +397,7 @@ Return JSON:
       ],
       response_format: { type: "json_object" },
       temperature: 0.1,
-    })
+    }))
 
     const content = response.choices[0].message.content
     if (!content) {
@@ -631,27 +487,13 @@ function filterStrategicEntities(entities: any[], episodeTitle: string): any[] {
   const alwaysKeep = entities.filter((entity) => {
     const name = entity.name.toLowerCase()
 
-    // Always keep Episodes
-    if (entity.type === "Episode") return true
-
-    // Always keep 7 Powers
-    const sevenPowers = [
-      "scale economies",
-      "network economies",
-      "counter-positioning",
-      "switching costs",
-      "branding",
-      "cornered resource",
-      "process power",
-    ]
-    if (sevenPowers.includes(name)) return true
-
-    // Always keep main industries
-    if (name.includes("industry")) return true
-
     // Always keep the main company (likely in episode title)
     const titleWords = episodeTitle.toLowerCase().split(/\s+/)
     if (titleWords.some((word) => name.includes(word) && word.length > 3)) return true
+
+    // Always keep major companies by name recognition
+    const majorCompanies = ["apple", "microsoft", "amazon", "google", "facebook", "meta", "tesla", "netflix", "rolex", "lvmh", "hermès", "disney", "nike"]
+    if (entity.type === "Company" && majorCompanies.some(company => name.includes(company))) return true
 
     return false
   })
@@ -683,36 +525,17 @@ function calculateStrategicScore(entity: any, episodeTitle: string): number {
   const description = (entity.description || "").toLowerCase()
 
   // Higher score for companies (main focus of Acquired)
-  if (entity.type === "Company") score += 10
-
-  // Higher score for episodes
-  if (entity.type === "Episode") score += 15
+  if (entity.type === "Company") {
+    score += 10
+    // Bonus for well-known companies
+    const majorCompanies = ["apple", "microsoft", "amazon", "google", "facebook", "meta", "tesla", "netflix", "rolex", "lvmh", "hermès", "disney", "nike"]
+    if (majorCompanies.some(company => name.includes(company))) score += 5
+  }
 
   // Higher score for key people (founders, CEOs)
   if (entity.type === "Person") {
-    if (description.includes("founder") || description.includes("ceo")) score += 8
-    else score += 3
-  }
-
-  // Strategic topics get higher scores
-  if (entity.type === "Topic") {
-    const strategicKeywords = [
-      "strategy",
-      "competitive",
-      "advantage",
-      "innovation",
-      "acquisition",
-      "market",
-      "platform",
-      "ecosystem",
-      "vertical",
-      "integration",
-    ]
-    if (strategicKeywords.some((keyword) => name.includes(keyword) || description.includes(keyword))) {
-      score += 6
-    } else {
-      score += 2
-    }
+    if (description.includes("founder") || description.includes("ceo") || description.includes("chairman")) score += 8
+    else score += 5
   }
 
   // Bonus for entities mentioned in episode title
@@ -823,7 +646,7 @@ async function extractEntitiesAndRelationships(
   try {
     console.log(`Sending chunk (length: ${transcriptChunk.length}) to OpenAI for entity and relationship extraction`)
 
-    const response = await openai.chat.completions.create({
+    const response = await retryWithBackoff(() => openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [
         {
@@ -836,64 +659,41 @@ EPISODE CONTEXT:
 - Industry: ${episodeOverview.industry}
 - Key Topics: ${episodeOverview.keyTopics.join(", ")}
 
-CRITICAL RULE: If the episode title matches a company name (e.g., episode "Rolex" discussing Rolex company), DO NOT create a separate Company entity. The Episode entity serves as both the episode and the company.
+FOCUS: Extract companies and people discussed in this business strategy episode.
 
 TASK: Extract around 5 strategically important entities from this chunk and create relationships between them.
 
 STEP 1: EXTRACT ENTITIES
-Use ONLY these 4 types:
-- "Company": Business organizations (NOT products like "iPhone" or "Apple Watch") - BUT skip if episode title is the same company name
-- "Person": Individual people (founders, CEOs, key executives)
-- "Topic": Everything else (products, industries, strategic concepts, Hamilton Helmer's 7 Powers)
-- "Episode": This specific episode being discussed (use the episode title)
+Use ONLY these 2 types:
+- "Company": Business organizations (Apple, Microsoft, Rolex, etc.)
+- "Person": Individual people (founders, CEOs, key executives, investors)
 
-STEP 2: CATEGORIZE INTO ONE OF THE 4 BUCKETS
-- Company: Apple, Microsoft (organizations) - SKIP if episode title matches
-- Person: Steve Jobs, Tim Cook, Morris Chang (individuals)
-- Topic: iPhone, Luxury Goods Industry, Branding, Scale Economies (concepts/products/industries)
-- Episode: "${episodeTitle}" (this specific episode - serves as company too if names match)
+STEP 2: CATEGORIZE INTO ONE OF THE 2 BUCKETS
+- Company: Apple, Microsoft, Rolex, LVMH (business organizations)
+- Person: Steve Jobs, Tim Cook, Bernard Arnault, Morris Chang (individuals)
 
 STEP 3: WRITE DESCRIPTIONS
 Each entity needs a brief strategic description (1-2 sentences max).
 
-STEP 4: MANDATORY - ALWAYS INCLUDE THE EPISODE
-Always include this episode as an entity:
-{
-  "name": "${episodeTitle}",
-  "type": "Episode",
-  "description": "Acquired podcast episode discussing strategic business analysis"
-}
+STEP 4: CREATE RELATIONSHIPS
+Connect entities with meaningful relationships. Focus on business relationships such as:
+- Person founding/leading Company
+- Company acquiring/investing in Company  
+- Person working at Company
+- Company competing with Company
+- Person investing in Company
 
-STEP 5: MANDATORY - LOOK FOR HAMILTON HELMER'S 7 POWERS
-Always scan for these exact powers and create Topic entities if found:
-- "Scale Economies" - declining unit costs with increased production
-- "Network Economies" - value increases as customer base grows  
-- "Counter-Positioning" - new position incumbent can't copy without harm
-- "Switching Costs" - customer value loss when switching alternatives
-- "Branding" - habitual purchase based on trust beyond utility
-- "Cornered Resource" - preferential access to coveted asset
-- "Process Power" - embedded organization enabling lower costs
+STEP 5: ENSURE CONNECTIVITY
+Every entity should have meaningful business connections to other entities in the network. Avoid isolated nodes.
 
-STEP 6: MANDATORY - LOOK FOR OVERARCHING TOPIC/INDUSTRY
-Always include the primary industry as a Topic entity (e.g., "Luxury Goods Industry", "Semiconductor Industry").
-
-STEP 7: CREATE RELATIONSHIPS
-Connect entities with meaningful relationships. EVERY entity must connect to the episode either directly or through another entity.
-
-STEP 8: ENSURE EPISODE CONNECTIVITY
-Every entity must have a path back to the episode. Examples:
-- Person → Episode (person mentioned in episode)
-- Topic → Episode (topic discussed in episode)
-- Company → Episode (company discussed in episode)
-
-STEP 9: JSON OUTPUT
+STEP 6: JSON OUTPUT
 Return this EXACT structure:
 
 {
   "entities": [
     {
       "name": "Exact Entity Name",
-      "type": "Company|Person|Topic|Episode",
+      "type": "Company|Person",
       "description": "Strategic description in 1-2 sentences"
     }
   ],
@@ -907,13 +707,12 @@ Return this EXACT structure:
 }
 
 EXAMPLES:
-- Episode "Rolex" discussing Rolex company: Only create Episode "Rolex", NO separate Company "Rolex"
-- "Apple Watch" = Topic (it's a product, not a company)
+- "Apple" = Company (business organization)
 - "Tim Cook" = Person (individual)
-- "Branding" = Topic (strategic concept)
-- "Luxury Goods Industry" = Topic (industry)
+- "Rolex" = Company (business organization)
+- "Bernard Arnault" = Person (individual)
 
-Be selective - focus on entities central to the strategic story being told in this chunk, and ensure everything connects back to the episode.`,
+Be selective - focus on entities central to the strategic business story being told in this chunk.`,
         },
         {
           role: "user",
@@ -922,7 +721,7 @@ Be selective - focus on entities central to the strategic story being told in th
       ],
       response_format: { type: "json_object" },
       temperature: 0.1,
-    })
+    }))
 
     const content = response.choices[0].message.content
     if (!content) {
@@ -965,32 +764,23 @@ Be selective - focus on entities central to the strategic story being told in th
 // Entity consolidation functions
 function consolidateEntities(entities: any[]): any[] {
   const consolidationMap: Record<string, string> = {
-    // Brand-related consolidation
-    "brand management": "Branding",
-    "brand power": "Branding",
-    "brand positioning": "Branding",
-    "brand strategy": "Branding",
-    "brand building": "Branding",
-    "brand equity": "Branding",
-
-    // Scale-related consolidation
-    "economies of scale": "Scale Economies",
-    "scale advantages": "Scale Economies",
-    "scale benefits": "Scale Economies",
-
-    // Network-related consolidation
-    "network effects": "Network Economies",
-    "network advantages": "Network Economies",
-    "network value": "Network Economies",
-
-    // Industry standardization
-    "luxury market": "Luxury Goods Industry",
-    "luxury sector": "Luxury Goods Industry",
-    "luxury business": "Luxury Goods Industry",
-    "semiconductor market": "Semiconductor Industry",
-    "chip industry": "Semiconductor Industry",
-    "software market": "Software Industry",
-    "tech industry": "Software Industry",
+    // Company name standardization
+    "apple inc": "Apple",
+    "apple computer": "Apple", 
+    "microsoft corporation": "Microsoft",
+    "alphabet inc": "Google",
+    "meta platforms": "Meta",
+    "facebook inc": "Meta",
+    "tesla inc": "Tesla",
+    "tesla motors": "Tesla",
+    "lvmh moet hennessy louis vuitton": "LVMH",
+    
+    // Person name standardization
+    "steve jobs": "Steve Jobs",
+    "tim cook": "Tim Cook", 
+    "bernard arnault": "Bernard Arnault",
+    "elon musk": "Elon Musk",
+    "mark zuckerberg": "Mark Zuckerberg",
   }
 
   const consolidatedMap = new Map<string, any>()
@@ -1030,14 +820,23 @@ function consolidateRelationships(relationships: any[], consolidatedEntities: an
   })
 
   const consolidationMap: Record<string, string> = {
-    "brand management": "Branding",
-    "brand power": "Branding",
-    "brand positioning": "Branding",
-    "brand strategy": "Branding",
-    "economies of scale": "Scale Economies",
-    "network effects": "Network Economies",
-    "luxury market": "Luxury Goods Industry",
-    "semiconductor market": "Semiconductor Industry",
+    // Company name standardization  
+    "apple inc": "Apple",
+    "apple computer": "Apple", 
+    "microsoft corporation": "Microsoft",
+    "alphabet inc": "Google",
+    "meta platforms": "Meta",
+    "facebook inc": "Meta",
+    "tesla inc": "Tesla",
+    "tesla motors": "Tesla",
+    "lvmh moet hennessy louis vuitton": "LVMH",
+    
+    // Person name standardization
+    "steve jobs": "Steve Jobs",
+    "tim cook": "Tim Cook", 
+    "bernard arnault": "Bernard Arnault",
+    "elon musk": "Elon Musk",
+    "mark zuckerberg": "Mark Zuckerberg",
   }
 
   return relationships

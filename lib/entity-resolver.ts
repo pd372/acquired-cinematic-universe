@@ -102,7 +102,7 @@ async function findMatchingEntity(entityName: string, entityType: string): Promi
 
   console.log(`Searching for entity "${entityName}" with alternatives:`, alternativeNames)
 
-  // Strategy 1: Exact match on any alternative name
+  // Strategy 1: Exact match on any alternative name (CONSERVATIVE)
   for (const altName of alternativeNames) {
     const exactMatches = await sql`
       SELECT id, name, type, description, normalized_name 
@@ -119,83 +119,72 @@ async function findMatchingEntity(entityName: string, entityType: string): Promi
     }
   }
 
-  // Strategy 2: Fuzzy matching using trigram similarity on all alternatives
+  // Strategy 2: High-confidence fuzzy matching (VERY CONSERVATIVE - 0.8+ only)
   for (const normalizedAlt of normalizedAlternatives) {
     const fuzzyMatches = await sql`
       SELECT id, name, type, description, normalized_name,
              similarity(normalized_name, ${normalizedAlt}) as sim_score
       FROM "Entity"
       WHERE type = ${entityType}
-      AND similarity(normalized_name, ${normalizedAlt}) > 0.3
+      AND similarity(normalized_name, ${normalizedAlt}) > 0.8
       ORDER BY sim_score DESC
       LIMIT 1
     `
 
-    if (fuzzyMatches.length > 0 && fuzzyMatches[0].sim_score > 0.5) {
+    if (fuzzyMatches.length > 0 && fuzzyMatches[0].sim_score > 0.85) {
       console.log(
-        `Found fuzzy match for "${entityName}" -> "${fuzzyMatches[0].name}" (score: ${fuzzyMatches[0].sim_score})`,
+        `Found high-confidence fuzzy match for "${entityName}" -> "${fuzzyMatches[0].name}" (score: ${fuzzyMatches[0].sim_score})`,
       )
       entityCache.set(cacheKey, fuzzyMatches[0])
       return fuzzyMatches[0]
     }
   }
 
-  // Strategy 3: Containment matching (one name contains the other)
-  for (const normalizedAlt of normalizedAlternatives) {
-    const containmentMatches = await sql`
-      SELECT id, name, type, description, normalized_name
-      FROM "Entity"
-      WHERE type = ${entityType}
-      AND (
-        normalized_name LIKE ${`%${normalizedAlt}%`}
-        OR ${normalizedAlt} LIKE CONCAT('%', normalized_name, '%')
-      )
-      ORDER BY LENGTH(normalized_name) ASC
-      LIMIT 1
-    `
-
-    if (containmentMatches.length > 0) {
-      console.log(`Found containment match for "${entityName}" -> "${containmentMatches[0].name}"`)
-      entityCache.set(cacheKey, containmentMatches[0])
-      return containmentMatches[0]
+  // Strategy 3: Known aliases and variations only (WHITELIST APPROACH)
+  const knownAliases: Record<string, Record<string, string[]>> = {
+    Company: {
+      "apple": ["apple inc", "apple computer"],
+      "microsoft": ["microsoft corporation", "msft"],
+      "meta": ["facebook", "meta platforms", "facebook inc"],
+      "alphabet": ["google", "alphabet inc"],
+      "lvmh": ["lvmh moet hennessy louis vuitton", "moet hennessy louis vuitton"],
+      "bernard arnault": [], // Person, not company
+      "groupe arnault": [], // Should not match with anything else
+      "omega": [], // Should not match with anything else  
+      "rolex": ["wilsdorf and davis"], // Historical name
+    },
+    Person: {
+      "bernard arnault": [], // Should not match with companies
+      "steve jobs": [],
+      "tim cook": [],
+      "mark zuckerberg": [],
     }
   }
 
-  // Strategy 4: Word-based matching (check if all significant words are present)
-  const significantWords = entityName
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(
-      (word) =>
-        word.length > 2 &&
-        !["the", "and", "or", "of", "in", "at", "to", "for", "with", "by", "inc", "corp", "ltd", "llc"].includes(word),
-    )
-
-  if (significantWords.length > 0) {
-    // Build a query that checks if all significant words are present
-    const wordConditions = significantWords.map((word) => `normalized_name LIKE '%${word}%'`).join(" AND ")
-
-    try {
-      const wordMatches = await sql`
+  // Check known aliases
+  const entityNormalized = normalizeEntityName(entityName)
+  const typeAliases = knownAliases[entityType] || {}
+  
+  for (const [canonical, aliases] of Object.entries(typeAliases)) {
+    if (entityNormalized === canonical || aliases.includes(entityNormalized)) {
+      // Find the canonical entity
+      const canonicalMatches = await sql`
         SELECT id, name, type, description, normalized_name
         FROM "Entity"
         WHERE type = ${entityType}
-        AND (${sql.unsafe(wordConditions)})
-        ORDER BY LENGTH(normalized_name) ASC
+        AND normalized_name = ${canonical}
         LIMIT 1
       `
-
-      if (wordMatches.length > 0) {
-        console.log(`Found word-based match for "${entityName}" -> "${wordMatches[0].name}"`)
-        entityCache.set(cacheKey, wordMatches[0])
-        return wordMatches[0]
+      
+      if (canonicalMatches.length > 0) {
+        console.log(`Found known alias match for "${entityName}" -> "${canonicalMatches[0].name}"`)
+        entityCache.set(cacheKey, canonicalMatches[0])
+        return canonicalMatches[0]
       }
-    } catch (error) {
-      console.error("Error in word-based matching:", error)
     }
   }
 
-  console.log(`No match found for "${entityName}"`)
+  console.log(`No match found for "${entityName}" (conservative matching)`)
   return null
 }
 

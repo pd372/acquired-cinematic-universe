@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "vercel": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-vercel"],
+      "env": {
+        "VERCEL_API_TOKEN": "oxXBP1lOjgO8RWsRGyQPGOJg"
+      }
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-chrome-devtools"]
+    },
+    "neon": {
+      "command": "npx",
+      "args": ["-y", "@neondatabase/mcp-server-neon", "start", "napi_tzqe9336kwata60k7nfm7qgcrr75sxu2fzet86elzipks4ow2l3hzpcuo931nzf3"]
+    }
+  }
+}

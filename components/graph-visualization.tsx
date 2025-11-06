@@ -160,6 +160,9 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
 
       const svg = d3.select(svgRef.current)
       svg.selectAll("*").remove() // Clear previous graph
+      
+      // Also remove any lingering tooltips
+      d3.selectAll(".graph-tooltip").remove()
 
       // If no data, show message
       if (graphData.nodes.length === 0) {
@@ -214,6 +217,76 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
         .join("line")
         .attr("stroke-width", (d) => Math.sqrt(d.value))
         .attr("class", "graph-link")
+        .style("cursor", "pointer")
+        .on("mouseover", function(event, d) {
+          // Highlight the hovered edge
+          d3.select(this)
+            .transition()
+            .duration(200)
+            .attr("stroke", "#14b8a6")
+            .attr("stroke-opacity", 1)
+            .attr("stroke-width", Math.sqrt(d.value) * 1.5)
+          
+          // Remove any existing tooltips first
+          d3.selectAll(".graph-tooltip").remove()
+          
+          // Get the SVG element and its bounding rect for positioning
+          const svgElement = svgRef.current!
+          const svgRect = svgElement.getBoundingClientRect()
+          
+          // Create tooltip positioned relative to the SVG container
+          const tooltip = d3.select(svgElement.parentElement)
+            .append("div")
+            .attr("class", "graph-tooltip")
+            .style("position", "absolute")
+            .style("background", "rgba(0, 0, 0, 0.9)")
+            .style("color", "white")
+            .style("padding", "8px 12px")
+            .style("border-radius", "6px")
+            .style("font-size", "12px")
+            .style("font-family", "system-ui, sans-serif")
+            .style("pointer-events", "none")
+            .style("z-index", "1000")
+            .style("max-width", "200px")
+            .style("box-shadow", "0 4px 6px rgba(0, 0, 0, 0.1)")
+            .style("word-wrap", "break-word")
+            .html(d.description || "No description available")
+            .style("opacity", 0)
+          
+          // Position tooltip relative to container
+          const mouseX = event.clientX - svgRect.left
+          const mouseY = event.clientY - svgRect.top
+          
+          tooltip
+            .style("left", (mouseX + 10) + "px")
+            .style("top", (mouseY - 10) + "px")
+            .transition()
+            .duration(200)
+            .style("opacity", 1)
+        })
+        .on("mousemove", function(event, d) {
+          // Update tooltip position relative to container
+          const svgElement = svgRef.current!
+          const svgRect = svgElement.getBoundingClientRect()
+          const mouseX = event.clientX - svgRect.left
+          const mouseY = event.clientY - svgRect.top
+          
+          d3.select(".graph-tooltip")
+            .style("left", (mouseX + 10) + "px")
+            .style("top", (mouseY - 10) + "px")
+        })
+        .on("mouseout", function(event, d) {
+          // Reset the edge
+          d3.select(this)
+            .transition()
+            .duration(200)
+            .attr("stroke", "#4a5568")
+            .attr("stroke-opacity", 0.6)
+            .attr("stroke-width", Math.sqrt(d.value))
+          
+          // Remove tooltip immediately on mouseout
+          d3.selectAll(".graph-tooltip").remove()
+        })
 
       linkSelection.current = link
 

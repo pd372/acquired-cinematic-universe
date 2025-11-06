@@ -127,7 +127,33 @@ async function ruleBasedMatching(entityName: string, entityType: string): Promis
     }
   }
 
-  // Strategy 2: Fuzzy matching using trigram similarity
+  // Strategy 2: For Person entities, check substring matches (e.g., "Steve" vs "Steve Jobs")
+  if (entityType === "Person") {
+    const substringMatches = await sql`
+      SELECT id, name, type, description, normalized_name
+      FROM "Entity"
+      WHERE type = 'Person'
+      AND (
+        LOWER(name) LIKE ${'%' + entityName.toLowerCase() + '%'}
+        OR LOWER(${entityName}) LIKE '%' || LOWER(name) || '%'
+      )
+      AND LOWER(name) != ${entityName.toLowerCase()}
+      LIMIT 5
+    `
+
+    if (substringMatches.length > 0) {
+      // Found potential substring matches - we need to verify with description
+      // Return these as candidates for LLM verification
+      return {
+        name: "rule-based-substring-check",
+        cost: 0,
+        confidence: 0.5, // Low confidence - needs LLM verification
+        result: { substringCandidates: substringMatches },
+      }
+    }
+  }
+
+  // Strategy 3: Fuzzy matching using trigram similarity
   for (const normalizedAlt of normalizedAlternatives) {
     const fuzzyMatches = await sql`
       SELECT id, name, type, description, normalized_name,
@@ -155,6 +181,76 @@ async function ruleBasedMatching(entityName: string, entityType: string): Promis
     cost: 0,
     confidence: 0,
     result: null,
+  }
+}
+
+// LLM-based name inference (infer full name from description)
+async function llmInferFullName(
+  partialName: string,
+  entityType: string,
+  description: string | null,
+): Promise<string | null> {
+  // Only try to infer for Person entities with single-word names
+  if (entityType !== "Person" || !description || partialName.split(/\s+/).length > 1) {
+    return null
+  }
+
+  const cacheKey = `infer:${partialName}:${description.substring(0, 100)}`
+  const cachedResult = llmCache.get<string>(cacheKey)
+  if (cachedResult) {
+    return cachedResult
+  }
+
+  try {
+    const prompt = `You are an expert at inferring full names from partial names and context.
+
+PARTIAL NAME: "${partialName}"
+TYPE: ${entityType}
+DESCRIPTION: ${description}
+
+INSTRUCTIONS:
+- Based on the description, infer the person's full name (first and last name)
+- Only return a full name if you're confident based on the description
+- The description should contain clear context clues (company name, role, etc.)
+- Common examples:
+  * "Steve" + "CEO of Apple, co-founder in 1976" → "Steve Jobs"
+  * "Bill" + "co-founder of Microsoft in 1975" → "Bill Gates"
+  * "Jensen" + "CEO of NVIDIA, founded in 1993" → "Jensen Huang"
+- If you cannot confidently infer the full name, return null
+
+Respond with ONLY a JSON object:
+{
+  "fullName": "First Last" or null,
+  "confidence": number (0.0-1.0),
+  "reasoning": "brief explanation"
+}`
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 150,
+    })
+
+    const content = response.choices[0].message.content
+    if (!content) {
+      return null
+    }
+
+    const result = JSON.parse(content)
+
+    // Only use the inferred name if confidence is high
+    if (result.fullName && result.confidence >= 0.8) {
+      console.log(`  🔮 Inferred full name: "${partialName}" → "${result.fullName}" (confidence: ${result.confidence})`)
+      llmCache.set(cacheKey, result.fullName)
+      return result.fullName
+    }
+
+    llmCache.set(cacheKey, null)
+    return null
+  } catch (error) {
+    console.error("LLM name inference error:", error)
+    return null
   }
 }
 
@@ -205,6 +301,11 @@ INSTRUCTIONS:
 - For companies: "TSMC" = "Taiwan Semiconductor Manufacturing Company"
 - For people: Consider nicknames, full names vs shortened names
 - For topics: Consider synonyms and related concepts
+- IMPORTANT FOR PERSON ENTITIES: If one name is a substring of another (e.g., "Steve" vs "Steve Jobs"), check the descriptions carefully:
+  * If descriptions indicate the same person (same company, role, or context), they should match
+  * If descriptions indicate different people (e.g., "Steve Jobs" at Apple vs "Steve Ballmer" at Microsoft), they should NOT match
+  * Example: "Steve" (CEO of Apple) matches "Steve Jobs" (co-founder of Apple)
+  * Example: "Steve" (CEO of Microsoft) does NOT match "Steve Jobs" (co-founder of Apple)
 - Be strict: only match if you're confident they represent the SAME entity
 
 Respond with ONLY a JSON object:
@@ -274,16 +375,23 @@ async function findMatchingEntityHybrid(
     }
   }
 
-  // Step 2: If rule-based didn't find a good match, get candidates for LLM
-  const candidates = await sql`
-    SELECT id, name, type, description, normalized_name,
-           similarity(normalized_name, ${normalizeEntityName(entityName)}) as sim_score
-    FROM "Entity"
-    WHERE type = ${entityType}
-    AND similarity(normalized_name, ${normalizeEntityName(entityName)}) > 0.2
-    ORDER BY sim_score DESC
-    LIMIT 5
-  `
+  // Step 2: Handle substring candidates specially - they need LLM verification
+  let candidates: any[] = []
+  if (ruleResult.result && ruleResult.result.substringCandidates) {
+    console.log(`  🔤 Found ${ruleResult.result.substringCandidates.length} substring match(es) - sending to LLM for verification`)
+    candidates = ruleResult.result.substringCandidates
+  } else {
+    // Step 2b: Get general candidates for LLM
+    candidates = await sql`
+      SELECT id, name, type, description, normalized_name,
+             similarity(normalized_name, ${normalizeEntityName(entityName)}) as sim_score
+      FROM "Entity"
+      WHERE type = ${entityType}
+      AND similarity(normalized_name, ${normalizeEntityName(entityName)}) > 0.2
+      ORDER BY sim_score DESC
+      LIMIT 5
+    `
+  }
 
   // If no candidates, no point in using LLM
   if (candidates.length === 0) {
@@ -388,6 +496,24 @@ export async function resolveEntitiesHybrid(
           confidence: strategy.confidence,
         })
 
+        // For substring matches, always use the longer name
+        // Check if one name is a substring of the other
+        const isSubstringMatch =
+          stagedEntity.name.toLowerCase().includes(matchingEntity.name.toLowerCase()) ||
+          matchingEntity.name.toLowerCase().includes(stagedEntity.name.toLowerCase())
+
+        const shouldUpdateName = isSubstringMatch && stagedEntity.name.length > matchingEntity.name.length
+
+        // Update name if we have a longer version from substring matching
+        if (shouldUpdateName) {
+          await sql`
+            UPDATE "Entity"
+            SET name = ${stagedEntity.name}
+            WHERE id = ${entityId}
+          `
+          console.log(`  📝 Updated name from "${matchingEntity.name}" to "${stagedEntity.name}"`)
+        }
+
         // Update description if needed
         if (
           stagedEntity.description &&
@@ -402,16 +528,70 @@ export async function resolveEntitiesHybrid(
 
         merged++
       } else {
-        // Create new entity
-        const normalizedName = normalizeEntityName(stagedEntity.name)
-        const newId = uuidv4()
+        // Before creating new entity, try to infer full name from description if using LLM
+        let finalName = stagedEntity.name
+        let inferredEntity = null
 
-        await sql`
-          INSERT INTO "Entity" (id, name, type, description, normalized_name)
-          VALUES (${newId}, ${stagedEntity.name}, ${stagedEntity.type}, ${stagedEntity.description}, ${normalizedName})
-        `
-        entityId = newId
-        created++
+        if (useLLM && stagedEntity.type === "Person") {
+          const inferredName = await llmInferFullName(stagedEntity.name, stagedEntity.type, stagedEntity.description || null)
+          if (inferredName) {
+            finalName = inferredName
+            totalCost += 0.002 // Add cost for inference call
+
+            // Check if the inferred name already exists in the database
+            const existingWithInferredName = await sql`
+              SELECT id, name, type, description, normalized_name
+              FROM "Entity"
+              WHERE type = ${stagedEntity.type}
+              AND (LOWER(name) = ${inferredName.toLowerCase()} OR normalized_name = ${normalizeEntityName(inferredName)})
+              LIMIT 1
+            `
+
+            if (existingWithInferredName.length > 0) {
+              // The inferred name already exists! Merge with it instead of creating new
+              inferredEntity = existingWithInferredName[0]
+              console.log(`  🎯 Inferred name "${inferredName}" already exists - merging instead of creating`)
+            }
+          }
+        }
+
+        if (inferredEntity) {
+          // Merge with the existing entity that has the inferred name
+          entityId = inferredEntity.id
+
+          mergeDetails.push({
+            source: stagedEntity.name,
+            target: inferredEntity.name,
+            reason: `Matched via name inference: "${stagedEntity.name}" → "${inferredEntity.name}"`,
+            strategy: "llm-name-inference",
+            confidence: 0.9,
+          })
+
+          // Update description if needed
+          if (
+            stagedEntity.description &&
+            (!inferredEntity.description || stagedEntity.description.length > inferredEntity.description.length)
+          ) {
+            await sql`
+              UPDATE "Entity"
+              SET description = ${stagedEntity.description}
+              WHERE id = ${entityId}
+            `
+          }
+
+          merged++
+        } else {
+          // Create new entity with the final name (possibly inferred)
+          const normalizedName = normalizeEntityName(finalName)
+          const newId = uuidv4()
+
+          await sql`
+            INSERT INTO "Entity" (id, name, type, description, normalized_name)
+            VALUES (${newId}, ${finalName}, ${stagedEntity.type}, ${stagedEntity.description}, ${normalizedName})
+          `
+          entityId = newId
+          created++
+        }
       }
 
       // Create entity mention

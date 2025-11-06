@@ -1,59 +1,33 @@
 /**
- * Process items in parallel with controlled concurrency
+ * Process items in parallel with controlled concurrency using batching
  * @param items Array of items to process
  * @param processFn Function to process each item
- * @param concurrency Maximum number of concurrent operations
+ * @param concurrency Maximum number of concurrent operations (default: 5)
  * @returns Array of results
  */
 export async function processInParallel<T, R>(
   items: T[],
   processFn: (item: T) => Promise<R>,
-  concurrency = 3,
+  concurrency = 5,
 ): Promise<R[]> {
   const results: R[] = []
-  const pending: Promise<void>[] = []
-  const executing: Promise<void>[] = []
 
-  // Process each item with controlled concurrency
-  for (const item of items) {
-    // Create a promise that processes the item and stores its result
-    const p = Promise.resolve().then(async () => {
-      const result = await processFn(item)
-      results.push(result)
-    })
+  // Process items in batches
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency)
 
-    // Add the promise to our pending list
-    pending.push(p)
+    // Process all items in the batch concurrently
+    const batchResults = await Promise.all(
+      batch.map(item => processFn(item))
+    )
 
-    // If we already have enough executing promises, wait for one to finish
-    if (pending.length >= concurrency) {
-      // Move a pending promise to executing
-      const e = pending.shift()!
-      executing.push(e)
+    results.push(...batchResults)
 
-      // If we've reached our concurrency limit, wait for one to finish
-      if (executing.length >= concurrency) {
-        await Promise.race(executing)
-        // Remove completed promises
-        for (let i = executing.length - 1; i >= 0; i--) {
-          if (executing[i].isFulfilled) {
-            executing.splice(i, 1)
-          }
-        }
-      }
+    // Small delay between batches to avoid overwhelming the API
+    if (i + concurrency < items.length) {
+      await new Promise(resolve => setTimeout(resolve, 500))
     }
   }
 
-  // Wait for all remaining promises to complete
-  await Promise.all([...pending, ...executing])
-
   return results
-}
-
-// Add a property to Promise prototype to check if it's fulfilled
-// This is a TypeScript declaration to avoid type errors
-declare global {
-  interface Promise<T> {
-    isFulfilled?: boolean
-  }
 }
