@@ -16,8 +16,7 @@ export interface NodeData {
   name: string
   type: "Company" | "Person" | "Topic" | "Episode"
   connections: number
-  description?: string
-  episodes?: Episode[]
+  // description and episodes removed - now fetched via /api/node/[id] on demand
   relatedNodes?: RelatedNode[]
   x?: number
   y?: number

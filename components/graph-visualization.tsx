@@ -3,6 +3,7 @@
 import { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle } from "react"
 import * as d3 from "d3"
 import NodeDetailModal from "./node-detail-modal"
+import EdgeDetailModal from "./edge-detail-modal"
 import { useMobile } from "@/hooks/use-mobile"
 import type { NodeData, LinkData, GraphData } from "@/types/graph"
 
@@ -20,6 +21,9 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
     const svgRef = useRef<SVGSVGElement | null>(null)
     const [selectedNode, setSelectedNode] = useState<NodeData | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const [selectedEdge, setSelectedEdge] = useState<LinkData | null>(null)
+    const [isEdgeModalOpen, setIsEdgeModalOpen] = useState(false)
+    const [lockedNodeId, setLockedNodeId] = useState<string | null>(null)
     const [graphData, setGraphData] = useState<GraphData | null>(propGraphData || null)
     const [isLoading, setIsLoading] = useState(!propGraphData)
     const [error, setError] = useState<string | null>(null)
@@ -28,6 +32,9 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
     const nodeSelection = useRef<d3.Selection<SVGCircleElement, NodeData, SVGGElement, unknown> | null>(null)
     const labelSelection = useRef<d3.Selection<SVGTextElement, NodeData, SVGGElement, unknown> | null>(null)
     const linkSelection = useRef<d3.Selection<SVGLineElement, LinkData, SVGGElement, unknown> | null>(null)
+    const zoomBehavior = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null)
+    const svgSelection = useRef<d3.Selection<SVGSVGElement, unknown, null, undefined> | null>(null)
+    const lockedNodeIdRef = useRef<string | null>(null)
 
     useImperativeHandle(ref, () => ({
       highlightNode: (nodeId: string) => {
@@ -59,6 +66,25 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
         // Find and highlight the selected node
         const targetNode = graphData?.nodes.find((n) => n.id === nodeId)
         if (!targetNode) return
+
+        // Zoom and center on the selected node
+        if (svgRef.current && zoomBehavior.current && svgSelection.current && targetNode.x !== undefined && targetNode.y !== undefined) {
+          const width = svgRef.current.clientWidth
+          const height = svgRef.current.clientHeight
+          const scale = 2 // Zoom level
+
+          // Calculate transform to center the node
+          const transform = d3.zoomIdentity
+            .translate(width / 2, height / 2)
+            .scale(scale)
+            .translate(-targetNode.x, -targetNode.y)
+
+          // Animate zoom
+          svgSelection.current
+            .transition()
+            .duration(750)
+            .call(zoomBehavior.current.transform as any, transform)
+        }
 
         // Highlight the selected node
         nodeSelection.current
@@ -148,6 +174,83 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
       setSelectedNode(null)
     }, [])
 
+    const handleEdgeClick = useCallback((event: MouseEvent, d: LinkData) => {
+      setSelectedEdge(d)
+      setIsEdgeModalOpen(true)
+    }, [])
+
+    const handleEdgeModalClose = useCallback(() => {
+      setIsEdgeModalOpen(false)
+      setSelectedEdge(null)
+    }, [])
+
+    const applyLockedHighlight = useCallback((nodeId: string | null) => {
+      if (!nodeSelection.current || !labelSelection.current || !linkSelection.current) return
+
+      if (!nodeId) {
+        // Reset all highlights
+        nodeSelection.current
+          .transition()
+          .duration(300)
+          .attr("fill", "#6b7280")
+          .attr("r", (d) => 3 + d.connections * 1)
+
+        labelSelection.current
+          .transition()
+          .duration(300)
+          .style("fill", "#e2e8f0")
+          .style("font-weight", (d) => (d.type.toLowerCase() === "episode" ? "bold" : "normal"))
+
+        linkSelection.current
+          .transition()
+          .duration(300)
+          .attr("stroke", "#4a5568")
+          .attr("stroke-opacity", 0.6)
+          .attr("stroke-width", (d) => Math.sqrt(d.value))
+        return
+      }
+
+      // Apply locked highlight with blue glow
+      nodeSelection.current
+        .transition()
+        .duration(300)
+        .attr("fill", (d) => (d.id === nodeId ? "#3b82f6" : "#6b7280")) // Blue for locked node
+        .attr("r", (d) => (d.id === nodeId ? (3 + d.connections * 1) * 1.5 : 3 + d.connections * 1))
+
+      labelSelection.current
+        .transition()
+        .duration(300)
+        .style("fill", (d) => (d.id === nodeId ? "#ffffff" : "#e2e8f0"))
+        .style("font-weight", (d) =>
+          d.id === nodeId ? "bold" : d.type.toLowerCase() === "episode" ? "bold" : "normal",
+        )
+
+      linkSelection.current
+        .transition()
+        .duration(300)
+        .attr("stroke", (linkData) => {
+          const source = typeof linkData.source === "string" ? linkData.source : linkData.source.id
+          const target = typeof linkData.target === "string" ? linkData.target : linkData.target.id
+          return source === nodeId || target === nodeId ? "#3b82f6" : "#4a5568" // Blue for connected edges
+        })
+        .attr("stroke-opacity", (linkData) => {
+          const source = typeof linkData.source === "string" ? linkData.source : linkData.source.id
+          const target = typeof linkData.target === "string" ? linkData.target : linkData.target.id
+          return source === nodeId || target === nodeId ? 1 : 0.6
+        })
+        .attr("stroke-width", (linkData) => {
+          const source = typeof linkData.source === "string" ? linkData.source : linkData.source.id
+          const target = typeof linkData.target === "string" ? linkData.target : linkData.target.id
+          return source === nodeId || target === nodeId ? Math.sqrt(linkData.value) * 1.5 : Math.sqrt(linkData.value)
+        })
+    }, [])
+
+    // Apply locked highlight when lockedNodeId changes and keep ref in sync
+    useEffect(() => {
+      lockedNodeIdRef.current = lockedNodeId
+      applyLockedHighlight(lockedNodeId)
+    }, [lockedNodeId, applyLockedHighlight])
+
     useEffect(() => {
       if (!graphData || !svgRef.current || isLoading) {
         return
@@ -160,7 +263,10 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
 
       const svg = d3.select(svgRef.current)
       svg.selectAll("*").remove() // Clear previous graph
-      
+
+      // Store SVG selection for zoom animation
+      svgSelection.current = svg
+
       // Also remove any lingering tooltips
       d3.selectAll(".graph-tooltip").remove()
 
@@ -180,14 +286,36 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
 
       const g = svg.append("g") // Group for zooming and panning
 
+      // Add invisible background rect for click detection
+      g.append("rect")
+        .attr("width", width * 10) // Large enough to cover zoomed area
+        .attr("height", height * 10)
+        .attr("x", -width * 4.5)
+        .attr("y", -height * 4.5)
+        .attr("fill", "transparent")
+        .attr("pointer-events", "all")
+        .on("click", () => {
+          setLockedNodeId(null)
+        })
+
       const zoom = d3
         .zoom<SVGSVGElement, unknown>()
         .scaleExtent([0.1, 8])
+        .filter((event: any) => {
+          // Allow all touch events and mouse events except right-click
+          if (event.type === 'mousedown' && event.button === 2) return false
+          return true
+        })
         .on("zoom", (event) => {
           g.attr("transform", event.transform.toString())
         })
 
+      // Store zoom behavior for programmatic zoom
+      zoomBehavior.current = zoom
+
       svg.call(zoom as any)
+
+      // Let D3 handle initial positioning naturally - don't pre-assign positions
 
       const simulation = d3
         .forceSimulation<NodeData, LinkData>(graphData.nodes)
@@ -219,13 +347,13 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
         .attr("class", "graph-link")
         .style("cursor", "pointer")
         .on("mouseover", function(event, d) {
-          // Highlight the hovered edge
+          // Highlight the hovered edge and make it thicker for easier clicking
           d3.select(this)
             .transition()
             .duration(200)
             .attr("stroke", "#14b8a6")
             .attr("stroke-opacity", 1)
-            .attr("stroke-width", Math.sqrt(d.value) * 1.5)
+            .attr("stroke-width", 4) // Thicker on hover for easier clicking
           
           // Remove any existing tooltips first
           d3.selectAll(".graph-tooltip").remove()
@@ -250,7 +378,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
             .style("max-width", "200px")
             .style("box-shadow", "0 4px 6px rgba(0, 0, 0, 0.1)")
             .style("word-wrap", "break-word")
-            .html(d.description || "No description available")
+            .html("Click to view details")
             .style("opacity", 0)
           
           // Position tooltip relative to container
@@ -283,9 +411,13 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
             .attr("stroke", "#4a5568")
             .attr("stroke-opacity", 0.6)
             .attr("stroke-width", Math.sqrt(d.value))
-          
+
           // Remove tooltip immediately on mouseout
           d3.selectAll(".graph-tooltip").remove()
+        })
+        .on("click", function(event, d) {
+          event.stopPropagation() // Prevent background click from unlocking
+          handleEdgeClick(event, d)
         })
 
       linkSelection.current = link
@@ -301,8 +433,19 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
         .style("cursor", "pointer")
         .attr("class", "graph-node")
         .call(d3.drag<SVGCircleElement, NodeData>().on("start", dragstarted).on("drag", dragged).on("end", dragended))
-        .on("click", handleNodeClick)
+        .on("click", function(event, d) {
+          event.stopPropagation() // Prevent background click from unlocking
+          handleNodeClick(event, d)
+        })
+        .on("contextmenu", function (event, d) {
+          event.preventDefault() // Prevent default context menu
+          event.stopPropagation() // Prevent event from bubbling
+          // Toggle locked state
+          setLockedNodeId((currentLocked) => (currentLocked === d.id ? null : d.id))
+        })
         .on("mouseover", function (event, d) {
+          // Don't show hover effect if a node is locked
+          if (lockedNodeIdRef.current) return
           // Highlight the hovered node with solid teal
           d3.select(this)
             .transition()
@@ -338,6 +481,46 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
             .style("font-weight", (labelData) => (labelData.id === d.id ? "bold" : "normal"))
         })
         .on("mouseout", function (event, d) {
+          // If this is the locked node, restore to blue locked state instead of gray
+          if (lockedNodeIdRef.current === d.id) {
+            d3.select(this)
+              .transition()
+              .duration(200)
+              .attr("fill", "#3b82f6") // Back to blue locked color
+              .attr("r", (3 + d.connections * 1) * 1.5)
+
+            // Keep edges highlighted in blue
+            link
+              .transition()
+              .duration(200)
+              .attr("stroke", (linkData) => {
+                const source = typeof linkData.source === "string" ? linkData.source : linkData.source.id
+                const target = typeof linkData.target === "string" ? linkData.target : linkData.target.id
+                return source === d.id || target === d.id ? "#3b82f6" : "#4a5568"
+              })
+              .attr("stroke-opacity", (linkData) => {
+                const source = typeof linkData.source === "string" ? linkData.source : linkData.source.id
+                const target = typeof linkData.target === "string" ? linkData.target : linkData.target.id
+                return source === d.id || target === d.id ? 1 : 0.6
+              })
+              .attr("stroke-width", (linkData) => {
+                const source = typeof linkData.source === "string" ? linkData.source : linkData.source.id
+                const target = typeof linkData.target === "string" ? linkData.target : linkData.target.id
+                return source === d.id || target === d.id ? Math.sqrt(linkData.value) * 1.5 : Math.sqrt(linkData.value)
+              })
+
+            // Keep label highlighted
+            labels
+              .transition()
+              .duration(200)
+              .style("fill", (labelData) => (labelData.id === d.id ? "#ffffff" : "#e2e8f0"))
+              .style("font-weight", (labelData) => (labelData.id === d.id ? "bold" : labelData.type.toLowerCase() === "episode" ? "bold" : "normal"))
+            return
+          }
+
+          // If another node is locked, don't reset anything
+          if (lockedNodeIdRef.current) return
+
           // Reset the hovered node
           d3.select(this)
             .transition()
@@ -416,7 +599,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
       return () => {
         simulation.stop()
       }
-    }, [graphData, handleNodeClick, isLoading])
+    }, [graphData, handleNodeClick, handleEdgeClick, isLoading])
 
     if (isLoading) {
       return (
@@ -442,8 +625,14 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
 
     return (
       <div className="w-full h-full min-h-[500px] bg-gray-50 dark:bg-gray-950 rounded-lg shadow-inner">
-        <svg ref={svgRef} className="w-full h-full"></svg>
+        <svg ref={svgRef} className="w-full h-full" style={{ touchAction: 'none' }}></svg>
         <NodeDetailModal node={selectedNode} isOpen={isModalOpen} onClose={handleModalClose} />
+        <EdgeDetailModal
+          edge={selectedEdge}
+          nodes={graphData?.nodes || null}
+          isOpen={isEdgeModalOpen}
+          onClose={handleEdgeModalClose}
+        />
       </div>
     )
   },

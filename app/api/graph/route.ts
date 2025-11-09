@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 import { getGraphData } from "@/lib/db"
 
+// Allow caching for this route
 export const dynamic = "force-dynamic"
+export const revalidate = 300 // Revalidate every 5 minutes
 
 export async function GET() {
   try {
@@ -12,12 +14,12 @@ export async function GET() {
 
     console.log(`Returning ${graphData.nodes.length} nodes and ${graphData.links.length} links`)
 
-    // TEMPORARY: Aggressive no-cache headers for debugging
+    // Cache with stale-while-revalidate pattern
+    // - Cache for 5 minutes (s-maxage=300)
+    // - Allow serving stale content for 10 minutes while revalidating (stale-while-revalidate=600)
     return NextResponse.json(graphData, {
       headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
-        'Pragma': 'no-cache',
-        'Expires': '0',
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
       }
     })
   } catch (error: any) {

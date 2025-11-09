@@ -2,7 +2,21 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useState, useEffect } from "react"
 import type { NodeData } from "@/types/graph"
+
+interface NodeDetails {
+  id: string
+  name: string
+  type: string
+  description?: string
+  episodes?: Array<{
+    id: string
+    title: string
+    url: string
+    date: string | null
+  }>
+}
 
 const ExternalLinkIcon = () => (
   <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -43,6 +57,38 @@ interface NodeDetailModalProps {
 }
 
 export default function NodeDetailModal({ node, isOpen, onClose }: NodeDetailModalProps) {
+  const [nodeDetails, setNodeDetails] = useState<NodeDetails | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch node details when modal opens
+  useEffect(() => {
+    if (!node || !isOpen) {
+      return
+    }
+
+    const fetchNodeDetails = async () => {
+      setIsLoading(true)
+      setError(null)
+
+      try {
+        const response = await fetch(`/api/node/${node.id}`)
+        if (!response.ok) {
+          throw new Error(`Failed to fetch node details: ${response.statusText}`)
+        }
+        const data = await response.json()
+        setNodeDetails(data)
+      } catch (err: any) {
+        console.error("Error fetching node details:", err)
+        setError(err.message || "Failed to load node details")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchNodeDetails()
+  }, [node, isOpen])
+
   if (!node) return null
 
   const formatDate = (dateString?: string) => {
@@ -90,66 +136,85 @@ export default function NodeDetailModal({ node, isOpen, onClose }: NodeDetailMod
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Basic Info */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <HashIcon />
-                Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="flex items-center gap-2">
-                <UsersIcon />
-                <span className="text-sm text-muted-foreground">Connections:</span>
-                <Badge variant="secondary">{node.connections}</Badge>
-              </div>
-              {node.description && (
-                <div>
-                  <span className="text-sm font-medium">Description:</span>
-                  <p className="text-sm text-muted-foreground mt-1">{node.description}</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {/* Loading State */}
+          {isLoading && (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-gray-100"></div>
+            </div>
+          )}
 
-          {/* Episodes */}
-          {node.episodes && node.episodes.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CalendarIcon />
-                  Episodes ({node.episodes.length})
-                </CardTitle>
-                <CardDescription>Episodes where this {node.type.toLowerCase()} is mentioned</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                  {node.episodes.map((episode) => (
-                    <div key={episode.id} className="border rounded-lg p-3">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-sm">{episode.title}</h4>
-                          {episode.date && (
-                            <p className="text-xs text-muted-foreground mt-1">{formatDate(episode.date)}</p>
-                          )}
-                        </div>
-                        {episode.url && (
-                          <a
-                            href={episode.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="ml-2 p-1 hover:bg-muted rounded"
-                          >
-                            <ExternalLinkIcon />
-                          </a>
-                        )}
-                      </div>
+          {/* Error State */}
+          {error && !isLoading && (
+            <div className="text-center py-8">
+              <p className="text-red-500">{error}</p>
+            </div>
+          )}
+
+          {/* Content */}
+          {!isLoading && !error && nodeDetails && (
+            <>
+              {/* Basic Info */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <HashIcon />
+                    Details
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <UsersIcon />
+                    <span className="text-sm text-muted-foreground">Connections:</span>
+                    <Badge variant="secondary">{node.connections}</Badge>
+                  </div>
+                  {nodeDetails.description && (
+                    <div>
+                      <span className="text-sm font-medium">Description:</span>
+                      <p className="text-sm text-muted-foreground mt-1">{nodeDetails.description}</p>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Episodes */}
+              {nodeDetails.episodes && nodeDetails.episodes.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <CalendarIcon />
+                      Episodes ({nodeDetails.episodes.length})
+                    </CardTitle>
+                    <CardDescription>Episodes where this {node.type.toLowerCase()} is mentioned</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                      {nodeDetails.episodes.map((episode) => (
+                        <div key={episode.id} className="border rounded-lg p-3">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <h4 className="font-medium text-sm">{episode.title}</h4>
+                              {episode.date && (
+                                <p className="text-xs text-muted-foreground mt-1">{formatDate(episode.date)}</p>
+                              )}
+                            </div>
+                            {episode.url && (
+                              <a
+                                href={episode.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-2 p-1 hover:bg-muted rounded"
+                              >
+                                <ExternalLinkIcon />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </>
           )}
 
           {/* Related Nodes */}

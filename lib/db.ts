@@ -169,35 +169,6 @@ export async function getGraphData(): Promise<GraphData> {
     
     console.log(`Found ${allConnections.length} connections`)
 
-    // Get entity mentions for episodes
-    console.log("Fetching entity mentions...")
-    const entityMentions = await sql`
-      SELECT 
-        em."entityId", 
-        e.id as "episodeId", 
-        e.title, 
-        e.url, 
-        e."publishedAt"
-      FROM "EntityMention" em
-      JOIN "Episode" e ON em."episodeId" = e.id
-    `
-    
-    console.log(`Found ${entityMentions.length} entity mentions`)
-
-    // Build episodes by entity map
-    const episodesByEntityId: Record<string, any[]> = {}
-    entityMentions.forEach((mention: any) => {
-      if (!episodesByEntityId[mention.entityId]) {
-        episodesByEntityId[mention.entityId] = []
-      }
-      episodesByEntityId[mention.entityId].push({
-        id: mention.episodeId,
-        title: mention.title,
-        url: mention.url,
-        date: mention.publishedAt ? new Date(mention.publishedAt).toISOString().split("T")[0] : null,
-      })
-    })
-
     // Calculate connection counts for each entity
     const connectionCounts: Record<string, number> = {}
     allConnections.forEach((conn: any) => {
@@ -205,14 +176,13 @@ export async function getGraphData(): Promise<GraphData> {
       connectionCounts[conn.targetEntityId] = (connectionCounts[conn.targetEntityId] || 0) + 1
     })
 
-    // Format nodes - all nodes use the same sizing formula
+    // Format nodes - lightweight data for graph rendering only
     const nodes = allEntities.map((entity: any) => ({
       id: entity.id,
       name: entity.name,
       type: entity.type,
       connections: connectionCounts[entity.id] || 0,
-      description: entity.description,
-      episodes: episodesByEntityId[entity.id] || [],
+      // description and episodes removed - fetch via /api/node/[id] on demand
     }))
 
     // Format links - ensure both source and target exist
