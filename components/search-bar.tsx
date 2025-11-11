@@ -27,8 +27,10 @@ export default function SearchBar({ onNodeSelect }: SearchBarProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [isOpen, setIsOpen] = useState(false)
   const [filteredNodes, setFilteredNodes] = useState<NodeData[]>([])
+  const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const selectedItemRef = useRef<HTMLLIElement>(null)
 
   // Filter nodes based on search term
   useEffect(() => {
@@ -40,7 +42,18 @@ export default function SearchBar({ onNodeSelect }: SearchBarProps) {
     const filtered = graphData.nodes.filter((node) => node.name.toLowerCase().includes(searchTerm.toLowerCase()))
     setFilteredNodes(filtered.slice(0, 10)) // Limit to 10 results
     setIsOpen(filtered.length > 0)
+    setSelectedIndex(0) // Reset selection when results change
   }, [searchTerm, graphData])
+
+  // Scroll selected item into view when navigating with keyboard
+  useEffect(() => {
+    if (selectedItemRef.current) {
+      selectedItemRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      })
+    }
+  }, [selectedIndex])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -86,8 +99,15 @@ export default function SearchBar({ onNodeSelect }: SearchBarProps) {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && filteredNodes.length > 0) {
-      handleNodeClick(filteredNodes[0].id)
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setSelectedIndex((prev) => (prev < filteredNodes.length - 1 ? prev + 1 : prev))
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : prev))
+    } else if (e.key === "Enter" && filteredNodes.length > 0) {
+      e.preventDefault()
+      handleNodeClick(filteredNodes[selectedIndex].id)
     } else if (e.key === "Escape") {
       setIsOpen(false)
     }
@@ -128,14 +148,21 @@ export default function SearchBar({ onNodeSelect }: SearchBarProps) {
           className="absolute z-[60] mt-1 w-full bg-gray-800 border border-gray-700 rounded-md shadow-lg max-h-60 overflow-auto"
         >
           <ul>
-            {filteredNodes.map((node) => (
+            {filteredNodes.map((node, index) => (
               <li
                 key={node.id}
+                ref={index === selectedIndex ? selectedItemRef : null}
                 onClick={() => handleNodeClick(node.id)}
-                className="px-4 py-2 hover:bg-gray-700 cursor-pointer flex items-center justify-between"
+                className={`px-4 py-2 cursor-pointer flex items-center justify-between ${
+                  index === selectedIndex
+                    ? "bg-[#00E5C7] text-gray-900"
+                    : "hover:bg-gray-700"
+                }`}
               >
                 <span>{node.name}</span>
-                <span className="text-xs text-gray-400">{node.type}</span>
+                <span className={`text-xs ${index === selectedIndex ? "text-gray-700" : "text-gray-400"}`}>
+                  {node.type}
+                </span>
               </li>
             ))}
           </ul>

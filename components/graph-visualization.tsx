@@ -35,10 +35,19 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
     const zoomBehavior = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null)
     const svgSelection = useRef<d3.Selection<SVGSVGElement, unknown, null, undefined> | null>(null)
     const lockedNodeIdRef = useRef<string | null>(null)
+    const highlightedNodeIdRef = useRef<string | null>(null)
 
     useImperativeHandle(ref, () => ({
       highlightNode: (nodeId: string) => {
         if (!nodeSelection.current || !labelSelection.current || !linkSelection.current) return
+
+        // Update the highlighted node ref
+        highlightedNodeIdRef.current = nodeId || null
+
+        // Clear any locked node when a new search selection is made
+        if (nodeId) {
+          setLockedNodeId(null)
+        }
 
         if (!nodeId) {
           // Reset all highlights
@@ -404,13 +413,34 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
             .style("top", (mouseY - 10) + "px")
         })
         .on("mouseout", function(event, d) {
-          // Reset the edge
+          // Determine the correct color to restore based on active selections
+          const source = typeof d.source === "string" ? d.source : d.source.id
+          const target = typeof d.target === "string" ? d.target : d.target.id
+
+          let restoreColor = "#4a5568" // Default gray
+          let restoreOpacity = 0.6
+          let restoreWidth = Math.sqrt(d.value)
+
+          // Check if this edge is connected to the locked node (blue)
+          if (lockedNodeIdRef.current && (source === lockedNodeIdRef.current || target === lockedNodeIdRef.current)) {
+            restoreColor = "#3b82f6" // Blue for locked
+            restoreOpacity = 1
+            restoreWidth = Math.sqrt(d.value) * 1.5
+          }
+          // Check if this edge is connected to the search-highlighted node (teal)
+          else if (highlightedNodeIdRef.current && (source === highlightedNodeIdRef.current || target === highlightedNodeIdRef.current)) {
+            restoreColor = "#14b8a6" // Teal for search
+            restoreOpacity = 1
+            restoreWidth = Math.sqrt(d.value) * 1.5
+          }
+
+          // Reset the edge to its appropriate state
           d3.select(this)
             .transition()
             .duration(200)
-            .attr("stroke", "#4a5568")
-            .attr("stroke-opacity", 0.6)
-            .attr("stroke-width", Math.sqrt(d.value))
+            .attr("stroke", restoreColor)
+            .attr("stroke-opacity", restoreOpacity)
+            .attr("stroke-width", restoreWidth)
 
           // Remove tooltip immediately on mouseout
           d3.selectAll(".graph-tooltip").remove()
