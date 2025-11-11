@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useState, useEffect } from "react"
 import type { NodeData } from "@/types/graph"
+import CreateConnectionModal from "./create-connection-modal"
 
 interface NodeDetails {
   id: string
@@ -54,12 +55,18 @@ interface NodeDetailModalProps {
   node: NodeData | null
   isOpen: boolean
   onClose: () => void
+  allNodes?: NodeData[]
 }
 
-export default function NodeDetailModal({ node, isOpen, onClose }: NodeDetailModalProps) {
+export default function NodeDetailModal({ node, isOpen, onClose, allNodes = [] }: NodeDetailModalProps) {
   const [nodeDetails, setNodeDetails] = useState<NodeDetails | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedName, setEditedName] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isCreateConnectionOpen, setIsCreateConnectionOpen] = useState(false)
 
   // Fetch node details when modal opens
   useEffect(() => {
@@ -104,6 +111,77 @@ export default function NodeDetailModal({ node, isOpen, onClose }: NodeDetailMod
     }
   }
 
+  const handleEditName = () => {
+    if (!nodeDetails) return
+    setEditedName(nodeDetails.name)
+    setIsEditing(true)
+  }
+
+  const handleSaveName = async () => {
+    if (!node || !editedName.trim()) return
+
+    setIsSaving(true)
+    try {
+      const response = await fetch(`/api/entity/${node.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editedName.trim() }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update entity name")
+      }
+
+      // Update local state
+      if (nodeDetails) {
+        setNodeDetails({ ...nodeDetails, name: editedName.trim() })
+      }
+      setIsEditing(false)
+
+      // Refresh the page to update the graph
+      window.location.reload()
+    } catch (err: any) {
+      console.error("Error updating entity name:", err)
+      alert("Failed to update entity name: " + err.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditing(false)
+    setEditedName("")
+  }
+
+  const handleDelete = async () => {
+    if (!node) return
+
+    if (!confirm(`Are you sure you want to delete "${node.name}"? This action cannot be undone.`)) {
+      return
+    }
+
+    setIsDeleting(true)
+    try {
+      const response = await fetch(`/api/entity/${node.id}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to delete entity")
+      }
+
+      onClose()
+
+      // Refresh the page to update the graph
+      window.location.reload()
+    } catch (err: any) {
+      console.error("Error deleting entity:", err)
+      alert("Failed to delete entity: " + err.message)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const getTypeColor = (type: string) => {
     switch (type.toLowerCase()) {
       case "company":
@@ -129,10 +207,66 @@ export default function NodeDetailModal({ node, isOpen, onClose }: NodeDetailMod
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <span>{node.name}</span>
-            <Badge className={getTypeColor(node.type)}>{node.type}</Badge>
-          </DialogTitle>
+          <div className="space-y-3">
+            <DialogTitle className="flex items-center gap-2">
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={editedName}
+                  onChange={(e) => setEditedName(e.target.value)}
+                  className="flex-1 px-2 py-1 border rounded text-base"
+                  autoFocus
+                />
+              ) : (
+                <span>{nodeDetails?.name || node.name}</span>
+              )}
+              <Badge className={getTypeColor(node.type)}>{node.type}</Badge>
+            </DialogTitle>
+
+            {/* Admin Controls */}
+            <div className="flex gap-2 flex-wrap">
+              {isEditing ? (
+                <>
+                  <button
+                    onClick={handleSaveName}
+                    disabled={isSaving}
+                    className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 text-sm"
+                  >
+                    {isSaving ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    onClick={handleCancelEdit}
+                    disabled={isSaving}
+                    className="px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50 text-sm"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleEditName}
+                    className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                  >
+                    Edit Name
+                  </button>
+                  <button
+                    onClick={() => setIsCreateConnectionOpen(true)}
+                    className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm"
+                  >
+                    Create Connection
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-sm"
+                  >
+                    {isDeleting ? "Deleting..." : "Delete"}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -240,6 +374,14 @@ export default function NodeDetailModal({ node, isOpen, onClose }: NodeDetailMod
           )}
         </div>
       </DialogContent>
+
+      {/* Create Connection Modal */}
+      <CreateConnectionModal
+        isOpen={isCreateConnectionOpen}
+        onClose={() => setIsCreateConnectionOpen(false)}
+        sourceNode={node}
+        allNodes={allNodes}
+      />
     </Dialog>
   )
 }
