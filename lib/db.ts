@@ -163,7 +163,7 @@ export async function getGraphData(): Promise<GraphData> {
     // Get all connections
     console.log("Fetching all connections...")
     const allConnections = await sql`
-      SELECT "sourceEntityId", "targetEntityId", strength, description
+      SELECT id, "sourceEntityId", "targetEntityId", strength, description
       FROM "Connection"
     `
     
@@ -190,6 +190,7 @@ export async function getGraphData(): Promise<GraphData> {
     const links = allConnections
       .filter((conn: any) => entityIds.has(conn.sourceEntityId) && entityIds.has(conn.targetEntityId))
       .map((conn: any) => ({
+        id: conn.id,
         source: conn.sourceEntityId,
         target: conn.targetEntityId,
         value: conn.strength || 1,

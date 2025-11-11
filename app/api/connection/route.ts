@@ -35,9 +35,11 @@ export async function POST(request: Request) {
 
     if (manualEpisode.length === 0) {
       // Create the manual episode if it doesn't exist
+      // Generate a cuid-like ID using a combination of timestamp and random string
+      const cuid = `c${Date.now().toString(36)}${Math.random().toString(36).substring(2, 11)}`
       manualEpisode = await sql`
         INSERT INTO "Episode" (id, title, url, "publishedAt")
-        VALUES (gen_random_uuid(), 'Manual Admin Connections', 'manual://admin-created', NOW())
+        VALUES (${cuid}, 'Manual Admin Connections', 'manual://admin-created', NOW())
         RETURNING id
       `
     }
@@ -57,6 +59,13 @@ export async function POST(request: Request) {
       if (description) {
         await sql`
           UPDATE "Connection"
+          SET strength = COALESCE(strength, 0) + 1,
+              description = ${description}
+          WHERE id = ${existing[0].id}
+        `
+      } else {
+        await sql`
+          UPDATE "Connection"
           SET strength = COALESCE(strength, 0) + 1
           WHERE id = ${existing[0].id}
         `
@@ -68,10 +77,11 @@ export async function POST(request: Request) {
       })
     }
 
-    // Create the connection
+    // Create the connection with a generated cuid
+    const connectionId = `c${Date.now().toString(36)}${Math.random().toString(36).substring(2, 11)}`
     const connection = await sql`
-      INSERT INTO "Connection" ("episodeId", "sourceEntityId", "targetEntityId", strength)
-      VALUES (${episodeId}, ${sourceEntityId}, ${targetEntityId}, 1)
+      INSERT INTO "Connection" (id, "episodeId", "sourceEntityId", "targetEntityId", strength, description)
+      VALUES (${connectionId}, ${episodeId}, ${sourceEntityId}, ${targetEntityId}, 1, ${description || null})
       RETURNING id
     `
 

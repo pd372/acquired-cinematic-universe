@@ -19,6 +19,7 @@ export default function CreateConnectionModal({
   const [targetNodeId, setTargetNodeId] = useState("")
   const [searchTerm, setSearchTerm] = useState("")
   const [filteredNodes, setFilteredNodes] = useState<NodeData[]>([])
+  const [description, setDescription] = useState("")
   const [isCreating, setIsCreating] = useState(false)
 
   // Filter nodes based on search term
@@ -47,6 +48,7 @@ export default function CreateConnectionModal({
         body: JSON.stringify({
           sourceEntityId: sourceNode.id,
           targetEntityId: targetNodeId,
+          description: description.trim() || undefined,
         }),
       })
 
@@ -58,6 +60,7 @@ export default function CreateConnectionModal({
       // Reset form
       setTargetNodeId("")
       setSearchTerm("")
+      setDescription("")
 
       // Refresh the page to update the graph
       window.location.reload()
@@ -135,6 +138,18 @@ export default function CreateConnectionModal({
                 </button>
               </div>
             )}
+          </div>
+
+          {/* Description Field */}
+          <div>
+            <label className="text-sm font-medium mb-2 block">Description (optional):</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe the relationship between these entities..."
+              className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-[#00E5C7] resize-none"
+              rows={3}
+            />
           </div>
 
           {/* Action Buttons */}
