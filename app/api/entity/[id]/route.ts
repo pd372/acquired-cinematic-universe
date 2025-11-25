@@ -1,10 +1,16 @@
-import { NextResponse } from "next/server"
+import { NextResponse, NextRequest } from "next/server"
 import { neon } from "@neondatabase/serverless"
+import { verifyAuthHeader } from "@/lib/auth"
 
 const sql = neon(process.env.DATABASE_URL!)
 
 // Update entity name
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  // Check authentication
+  if (!verifyAuthHeader(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
     const entityId = params.id
     const { name } = await request.json()
@@ -28,7 +34,12 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 }
 
 // Delete entity
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  // Check authentication
+  if (!verifyAuthHeader(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
     const entityId = params.id
 

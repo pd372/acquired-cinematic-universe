@@ -1,10 +1,16 @@
-import { NextResponse } from "next/server"
+import { NextResponse, NextRequest } from "next/server"
 import { neon } from "@neondatabase/serverless"
+import { verifyAuthHeader } from "@/lib/auth"
 
 const sql = neon(process.env.DATABASE_URL!)
 
 // Create a manual connection between two entities
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  // Check authentication
+  if (!verifyAuthHeader(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
     const { sourceEntityId, targetEntityId, description } = await request.json()
 

@@ -2,6 +2,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useState, useEffect } from "react"
 import type { NodeData } from "@/types/graph"
+import { getAuthHeaders } from "@/lib/auth"
 
 interface CreateConnectionModalProps {
   isOpen: boolean
@@ -44,7 +45,10 @@ export default function CreateConnectionModal({
     try {
       const response = await fetch("/api/connection", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
         body: JSON.stringify({
           sourceEntityId: sourceNode.id,
           targetEntityId: targetNodeId,

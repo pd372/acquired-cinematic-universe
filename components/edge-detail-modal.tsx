@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useState } from "react"
 import type { LinkData, NodeData } from "@/types/graph"
+import { useAuth } from "@/components/auth-provider"
+import { getAuthHeaders } from "@/lib/auth"
 
 const ArrowRightIcon = () => (
   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -34,6 +36,7 @@ interface EdgeDetailModalProps {
 }
 
 export default function EdgeDetailModal({ edge, nodes, isOpen, onClose }: EdgeDetailModalProps) {
+  const { isAdmin } = useAuth()
   const [isDeleting, setIsDeleting] = useState(false)
 
   if (!edge || !nodes) return null
@@ -61,6 +64,7 @@ export default function EdgeDetailModal({ edge, nodes, isOpen, onClose }: EdgeDe
     try {
       const response = await fetch(`/api/connection/${edge.id}`, {
         method: "DELETE",
+        headers: getAuthHeaders(),
       })
 
       if (!response.ok) {
@@ -110,8 +114,8 @@ export default function EdgeDetailModal({ edge, nodes, isOpen, onClose }: EdgeDe
               Relationship
             </DialogTitle>
 
-            {/* Delete Button */}
-            {edge.id && (
+            {/* Delete Button - Only visible to admins */}
+            {isAdmin && edge.id && (
               <div>
                 <button
                   onClick={handleDelete}

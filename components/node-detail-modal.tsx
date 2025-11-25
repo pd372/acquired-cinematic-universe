@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useState, useEffect } from "react"
 import type { NodeData } from "@/types/graph"
 import CreateConnectionModal from "./create-connection-modal"
+import { useAuth } from "@/components/auth-provider"
+import { getAuthHeaders } from "@/lib/auth"
 
 interface NodeDetails {
   id: string
@@ -59,6 +61,7 @@ interface NodeDetailModalProps {
 }
 
 export default function NodeDetailModal({ node, isOpen, onClose, allNodes = [] }: NodeDetailModalProps) {
+  const { isAdmin } = useAuth()
   const [nodeDetails, setNodeDetails] = useState<NodeDetails | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -124,7 +127,10 @@ export default function NodeDetailModal({ node, isOpen, onClose, allNodes = [] }
     try {
       const response = await fetch(`/api/entity/${node.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
         body: JSON.stringify({ name: editedName.trim() }),
       })
 
@@ -164,6 +170,7 @@ export default function NodeDetailModal({ node, isOpen, onClose, allNodes = [] }
     try {
       const response = await fetch(`/api/entity/${node.id}`, {
         method: "DELETE",
+        headers: getAuthHeaders(),
       })
 
       if (!response.ok) {
@@ -223,49 +230,51 @@ export default function NodeDetailModal({ node, isOpen, onClose, allNodes = [] }
               <Badge className={getTypeColor(node.type)}>{node.type}</Badge>
             </DialogTitle>
 
-            {/* Admin Controls */}
-            <div className="flex gap-2 flex-wrap">
-              {isEditing ? (
-                <>
-                  <button
-                    onClick={handleSaveName}
-                    disabled={isSaving}
-                    className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 text-sm"
-                  >
-                    {isSaving ? "Saving..." : "Save"}
-                  </button>
-                  <button
-                    onClick={handleCancelEdit}
-                    disabled={isSaving}
-                    className="px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50 text-sm"
-                  >
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={handleEditName}
-                    className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
-                  >
-                    Edit Name
-                  </button>
-                  <button
-                    onClick={() => setIsCreateConnectionOpen(true)}
-                    className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm"
-                  >
-                    Create Connection
-                  </button>
-                  <button
-                    onClick={handleDelete}
-                    disabled={isDeleting}
-                    className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-sm"
-                  >
-                    {isDeleting ? "Deleting..." : "Delete"}
-                  </button>
-                </>
-              )}
-            </div>
+            {/* Admin Controls - Only visible to admins */}
+            {isAdmin && (
+              <div className="flex gap-2 flex-wrap">
+                {isEditing ? (
+                  <>
+                    <button
+                      onClick={handleSaveName}
+                      disabled={isSaving}
+                      className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 text-sm"
+                    >
+                      {isSaving ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      disabled={isSaving}
+                      className="px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50 text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleEditName}
+                      className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                    >
+                      Edit Name
+                    </button>
+                    <button
+                      onClick={() => setIsCreateConnectionOpen(true)}
+                      className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm"
+                    >
+                      Create Connection
+                    </button>
+                    <button
+                      onClick={handleDelete}
+                      disabled={isDeleting}
+                      className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-sm"
+                    >
+                      {isDeleting ? "Deleting..." : "Delete"}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </DialogHeader>
 

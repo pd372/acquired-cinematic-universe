@@ -3,6 +3,7 @@ import "./globals.css"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
+import { AuthProvider } from "@/components/auth-provider"
 import NavBar from "@/components/nav-bar"
 import { Toaster } from "@/components/ui/toaster"
 
@@ -23,9 +24,11 @@ export default function RootLayout({
     <html lang="en" className="h-full">
       <body className={`${inter.className} bg-black text-white h-full overflow-hidden`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-          <NavBar />
-          <div className="h-full pt-16">{children}</div>
-          <Toaster />
+          <AuthProvider>
+            <NavBar />
+            <div className="h-full pt-16">{children}</div>
+            <Toaster />
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

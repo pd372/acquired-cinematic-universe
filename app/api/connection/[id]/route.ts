@@ -1,10 +1,16 @@
-import { NextResponse } from "next/server"
+import { NextResponse, NextRequest } from "next/server"
 import { neon } from "@neondatabase/serverless"
+import { verifyAuthHeader } from "@/lib/auth"
 
 const sql = neon(process.env.DATABASE_URL!)
 
 // Delete connection
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  // Check authentication
+  if (!verifyAuthHeader(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
     const connectionId = params.id
 
