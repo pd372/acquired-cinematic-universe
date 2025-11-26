@@ -2,7 +2,10 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useState } from "react"
 import type { LinkData, NodeData } from "@/types/graph"
+import { useAuth } from "@/components/auth-provider"
+import { getAuthHeaders } from "@/lib/auth"
 
 const ArrowRightIcon = () => (
   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -33,6 +36,9 @@ interface EdgeDetailModalProps {
 }
 
 export default function EdgeDetailModal({ edge, nodes, isOpen, onClose }: EdgeDetailModalProps) {
+  const { isAdmin } = useAuth()
+  const [isDeleting, setIsDeleting] = useState(false)
+
   if (!edge || !nodes) return null
 
   // Get source and target node data
@@ -43,6 +49,39 @@ export default function EdgeDetailModal({ edge, nodes, isOpen, onClose }: EdgeDe
   const targetNode = nodes.find((n) => n.id === targetId)
 
   if (!sourceNode || !targetNode) return null
+
+  const handleDelete = async () => {
+    if (!edge.id) {
+      alert("Cannot delete connection: No connection ID found")
+      return
+    }
+
+    if (!confirm(`Are you sure you want to delete the connection between "${sourceNode.name}" and "${targetNode.name}"?`)) {
+      return
+    }
+
+    setIsDeleting(true)
+    try {
+      const response = await fetch(`/api/connection/${edge.id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to delete connection")
+      }
+
+      onClose()
+
+      // Refresh the page to update the graph
+      window.location.reload()
+    } catch (err: any) {
+      console.error("Error deleting connection:", err)
+      alert("Failed to delete connection: " + err.message)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
   const getTypeColor = (type: string) => {
     switch (type.toLowerCase()) {
@@ -69,10 +108,25 @@ export default function EdgeDetailModal({ edge, nodes, isOpen, onClose }: EdgeDe
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ArrowRightIcon />
-            Relationship
-          </DialogTitle>
+          <div className="space-y-3">
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRightIcon />
+              Relationship
+            </DialogTitle>
+
+            {/* Delete Button - Only visible to admins */}
+            {isAdmin && edge.id && (
+              <div>
+                <button
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-sm"
+                >
+                  {isDeleting ? "Deleting..." : "Delete Connection"}
+                </button>
+              </div>
+            )}
+          </div>
         </DialogHeader>
 
         <div className="space-y-4">

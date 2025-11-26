@@ -25,6 +25,7 @@ export interface NodeData {
 }
 
 export interface LinkData {
+  id?: string // Connection ID for deletion
   source: string | NodeData
   target: string | NodeData
   value: number

@@ -656,7 +656,12 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
     return (
       <div className="w-full h-full min-h-[500px] bg-gray-50 dark:bg-gray-950 rounded-lg shadow-inner">
         <svg ref={svgRef} className="w-full h-full" style={{ touchAction: 'none' }}></svg>
-        <NodeDetailModal node={selectedNode} isOpen={isModalOpen} onClose={handleModalClose} />
+        <NodeDetailModal
+          node={selectedNode}
+          isOpen={isModalOpen}
+          onClose={handleModalClose}
+          allNodes={graphData?.nodes || []}
+        />
         <EdgeDetailModal
           edge={selectedEdge}
           nodes={graphData?.nodes || null}
