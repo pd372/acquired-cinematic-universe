@@ -336,7 +336,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
             .distance(120), // Increased distance to make room for labels
         )
         .force("charge", d3.forceManyBody().strength(-400))
-        .force("center", d3.forceCenter(width / 2, height / 2).strength(0.05)) // Gentle centering to prevent drift
+        .force("center", d3.forceCenter(width / 2, height / 2).strength(0.15)) // Stronger centering to pull orphans back
         .force(
           "collide",
           d3
@@ -344,6 +344,11 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
             .radius((d) => 3 + d.connections * 1 + 15) // More space for external labels
             .iterations(2),
         )
+        .force("radial", d3.forceRadial<NodeData>(0, width / 2, height / 2).strength((d) => {
+          // Stronger radial force for nodes with fewer connections (orphans)
+          // This keeps them from drifting to the edges
+          return d.connections < 5 ? 0.3 : 0.1
+        }))
         .velocityDecay(0.6) // Higher friction for less drift
 
       const link = g
