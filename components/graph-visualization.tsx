@@ -336,7 +336,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
             .distance(120), // Increased distance to make room for labels
         )
         .force("charge", d3.forceManyBody().strength(-400))
-        .force("center", d3.forceCenter(width / 2, height / 2))
+        .force("center", d3.forceCenter(width / 2, height / 2).strength(0.05)) // Gentle centering to prevent drift
         .force(
           "collide",
           d3
@@ -344,6 +344,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
             .radius((d) => 3 + d.connections * 1 + 15) // More space for external labels
             .iterations(2),
         )
+        .velocityDecay(0.6) // Higher friction for less drift
 
       const link = g
         .append("g")
@@ -609,8 +610,15 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
         labels.attr("x", (d) => d.x!).attr("y", (d) => d.y!)
       })
 
+      let dragStartX = 0
+      let dragStartY = 0
+      let hasMovedThreshold = false
+
       function dragstarted(event: d3.D3DragEvent<SVGCircleElement, NodeData, NodeData>, d: NodeData) {
-        if (!event.active) simulation.alphaTarget(0.3).restart()
+        // Record starting position - don't reheat yet
+        dragStartX = event.x
+        dragStartY = event.y
+        hasMovedThreshold = false
         d.fx = d.x
         d.fy = d.y
       }
@@ -618,10 +626,27 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
       function dragged(event: d3.D3DragEvent<SVGCircleElement, NodeData, NodeData>, d: NodeData) {
         d.fx = event.x
         d.fy = event.y
+
+        // Only reheat simulation if mouse has moved > 3 pixels (actual drag, not just click)
+        if (!hasMovedThreshold) {
+          const dx = event.x - dragStartX
+          const dy = event.y - dragStartY
+          const distance = Math.sqrt(dx * dx + dy * dy)
+
+          if (distance > 3) {
+            hasMovedThreshold = true
+            // Restart simulation with gentle alpha
+            simulation.alpha(0.1).alphaTarget(0.05).restart()
+          }
+        }
       }
 
       function dragended(event: d3.D3DragEvent<SVGCircleElement, NodeData, NodeData>, d: NodeData) {
-        if (!event.active) simulation.alphaTarget(0)
+        // Only cool down if we actually dragged
+        if (hasMovedThreshold) {
+          simulation.alphaTarget(0)
+        }
+        hasMovedThreshold = false
         d.fx = null
         d.fy = null
       }
