@@ -333,15 +333,15 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
           d3
             .forceLink<NodeData, LinkData>(graphData.links)
             .id((d) => d.id)
-            .distance(120), // Increased distance to make room for labels
+            .distance(180), // Increased distance for better label readability
         )
-        .force("charge", d3.forceManyBody().strength(-400))
-        .force("center", d3.forceCenter(width / 2, height / 2).strength(0.15)) // Stronger centering to pull orphans back
+        .force("charge", d3.forceManyBody().strength(-800)) // Stronger repulsion to spread nodes out
+        .force("center", d3.forceCenter(width / 2, height / 2).strength(0.15)) // Maintain inward gravity
         .force(
           "collide",
           d3
             .forceCollide<NodeData>()
-            .radius((d) => 3 + d.connections * 1 + 15) // More space for external labels
+            .radius((d) => 3 + d.connections * 1.5 + 20) // More space between nodes
             .iterations(2),
         )
         .force("radial", d3.forceRadial<NodeData>(0, width / 2, height / 2).strength((d) => {

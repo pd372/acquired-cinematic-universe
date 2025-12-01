@@ -17,35 +17,24 @@ export default function AboutModal({ isOpen, onClose }: AboutModalProps) {
         <div className="space-y-6 mt-4">
           <section>
             <h2 className="text-xl font-semibold mb-2">What is this?</h2>
-            <p className="text-gray-300">
+            <p className="text-gray-300 mb-3">
               Have you ever wondered what the Acquired Cinematic Universe actually looks like? This is my attempt to create that visualization.
               This is an interactive network graph of the interconnected companies and individuals discussed in the Acquired podcast.
             </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-semibold mb-2">How it was built</h2>
             <p className="text-gray-300 mb-3">
-              This project combines AI-powered entity extraction with a Next.js web application and PostgreSQL database.
-              I scraped all episode transcripts from the Acquired website, then used Claude AI to process each transcript
-              and identify key entities (companies, people, topics) along with their relationships. The AI also resolved
-              entity mentions across episodes (e.g., recognizing "Apple" and "Apple Computer" as the same entity).
-            </p>
-            <p className="text-gray-300 mb-3">
-              The frontend uses D3.js for force-directed graph visualization with custom physics to create an Obsidian-like
-              feel - nodes settle naturally but respond smoothly when dragged. The graph supports panning, zooming, search,
-              and interactive exploration of entity relationships.
+              This project was built as a passion project by a fan of the show, with no commercial intention. It's simply a way to explore
+              and visualize the rich network of connections that Ben and David have explored over the years. This is a work in progress - I'll
+              be adding each episode as they come out and making improvements to the graph navigation and quality.
             </p>
             <p className="text-gray-300">
-              For a detailed technical breakdown of the architecture, AI prompts, and processing pipeline, I'll be writing
-              an in-depth article on my{" "}
+              If you want to connect or make suggestions, I'm on the Acquired Slack or you can reach me on{" "}
               <a
-                href="https://substack.com/@pdavila"
+                href="https://www.linkedin.com/in/pedro-d-avila-86641b170/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[#00E5C7] hover:underline"
               >
-                Substack
+                LinkedIn
               </a>
               .
             </p>
@@ -63,6 +52,31 @@ export default function AboutModal({ isOpen, onClose }: AboutModalProps) {
               <li><strong>Drag nodes:</strong> Click and drag nodes to rearrange the graph - nearby nodes will respond naturally</li>
               <li><strong>Node size:</strong> Larger nodes have more connections across episodes</li>
             </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold mb-2">How it was built</h2>
+            <p className="text-gray-300 mb-3">
+              I fetched transcripts for all Acquired and ACQ2 episodes, broke them into chunks, and processed them in parallel
+              through an LLM API to extract entities (companies and individuals). These were stored in staging tables, then ran
+              through an entity resolution process to deduplicate mentions across episodes (e.g., "Apple" and "Apple Computer"
+              map to the same entity). This resolution step is what creates the cross-episode connections - when mentions of the
+              same company or individual get merged, they end up connecting across all episodes they appeared in. I then extracted
+              relationships between entities and promoted everything to production tables.
+            </p>
+            <p className="text-gray-300">
+              For a detailed breakdown of the architecture, prompts, and processing pipeline, I'll be writing
+              an in-depth article on my{" "}
+              <a
+                href="https://substack.com/@pdavila"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#00E5C7] hover:underline"
+              >
+                Substack
+              </a>
+              .
+            </p>
           </section>
 
           <section>
