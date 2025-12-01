@@ -1,8 +1,17 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { clearAllCache } from '@/lib/cache'
+import { verifyAuthHeader } from '@/lib/auth'
 
-export async function POST() {
+// Force dynamic rendering for authenticated routes
+export const dynamic = "force-dynamic"
+
+export async function POST(request: NextRequest) {
   try {
+    // Check authentication
+    if (!verifyAuthHeader(request)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     clearAllCache()
     console.log('All cache cleared successfully.')
     return NextResponse.json({ message: 'All cache cleared.' })

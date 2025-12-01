@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server"
+import { env } from "./env"
 
-// Simple password check - in production, you'd use bcrypt
-// For now, we'll compare directly but you should hash this
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-me-in-production"
+// Simple password check - uses environment-validated password
+const ADMIN_PASSWORD = env.ADMIN_PASSWORD
 
 // Session expiry: 1 hour
 export const SESSION_DURATION = 60 * 60 * 1000 // 1 hour in milliseconds

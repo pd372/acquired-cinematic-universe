@@ -2,42 +2,22 @@ import { type NextRequest, NextResponse } from "next/server"
 import { runResolution, getEntityCacheStats, clearEntityCache } from "@/lib/entity-resolver"
 import { resolveEntitiesHybrid, clearHybridCaches, getHybridCacheStats } from "@/lib/hybrid-entity-resolver"
 import { getStagingStats, clearProcessedItems } from "@/lib/staging-store"
+import { verifyAuthHeader } from "@/lib/auth"
+
+// Force dynamic rendering for authenticated routes
+export const dynamic = "force-dynamic"
 
 export async function POST(request: NextRequest) {
   try {
-    // Check for API key authentication
-    const authHeader = request.headers.get("authorization")
-    const expectedKey = process.env.INTERNAL_API_KEY?.trim()
-
-    console.log("POST /api/resolve-entities - Auth check:")
-    console.log("- Auth header present:", !!authHeader)
-    console.log("- Expected key present:", !!expectedKey)
-
-    if (!expectedKey) {
-      console.error("INTERNAL_API_KEY environment variable not set")
-      return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
-    }
-
-    if (!authHeader || authHeader !== `Bearer ${expectedKey}`) {
-      console.log("Authentication failed - header mismatch")
+    // Check authentication
+    if (!verifyAuthHeader(request)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-
-    console.log("Authentication successful")
 
     // Get parameters from request
     const { entityBatchSize, relationshipBatchSize, maxBatches, clearOlderThan, clearCache, useHybrid, useLLM } =
       await request.json()
 
-    console.log("Resolution parameters:", {
-      entityBatchSize,
-      relationshipBatchSize,
-      maxBatches,
-      clearOlderThan,
-      clearCache,
-      useHybrid,
-      useLLM,
-    })
 
     // Clear caches if requested
     if (clearCache) {
@@ -125,16 +105,8 @@ export async function POST(request: NextRequest) {
 // Also support GET to check status
 export async function GET(request: NextRequest) {
   try {
-    // Check for API key authentication
-    const authHeader = request.headers.get("authorization")
-    const expectedKey = process.env.INTERNAL_API_KEY?.trim()
-
-    if (!expectedKey) {
-      console.error("INTERNAL_API_KEY environment variable not set")
-      return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
-    }
-
-    if (!authHeader || authHeader !== `Bearer ${expectedKey}`) {
+    // Check authentication
+    if (!verifyAuthHeader(request)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 

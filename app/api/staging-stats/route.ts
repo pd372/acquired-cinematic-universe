@@ -1,10 +1,19 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getStagingStats } from "@/lib/staging-store"
 import { getEntityCacheStats } from "@/lib/entity-resolver"
+import { verifyAuthHeader } from "@/lib/auth"
+
+// Force dynamic rendering for authenticated routes
+export const dynamic = "force-dynamic"
 
 export async function GET(request: NextRequest) {
   try {
-    // Get current staging stats (no auth required for read-only stats)
+    // Check authentication
+    if (!verifyAuthHeader(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Get current staging stats
     const stats = await getStagingStats()
 
     // Get cache stats

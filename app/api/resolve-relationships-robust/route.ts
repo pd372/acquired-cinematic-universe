@@ -1,33 +1,20 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { resolveRelationshipsRobust, getRelationshipResolutionStats } from "@/lib/robust-relationship-resolver"
 import { getStagingStats } from "@/lib/staging-store"
+import { verifyAuthHeader } from "@/lib/auth"
+
+// Force dynamic rendering for authenticated routes
+export const dynamic = "force-dynamic"
 
 export async function POST(request: NextRequest) {
   try {
-    // Check for API key authentication
-    const authHeader = request.headers.get("authorization")
-    const expectedKey = process.env.INTERNAL_API_KEY?.trim()
-
-    console.log("POST /api/resolve-relationships-robust - Auth check:")
-    console.log("- Auth header present:", !!authHeader)
-    console.log("- Expected key present:", !!expectedKey)
-
-    if (!expectedKey) {
-      console.error("INTERNAL_API_KEY environment variable not set")
-      return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
-    }
-
-    if (!authHeader || authHeader !== `Bearer ${expectedKey}`) {
-      console.log("Authentication failed - header mismatch")
+    // Check authentication
+    if (!verifyAuthHeader(request)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    console.log("Authentication successful")
-
     // Get parameters from request
     const { batchSize = 100 } = await request.json()
-
-    console.log("Robust relationship resolution parameters:", { batchSize })
 
     // Run robust relationship resolution
     const result = await resolveRelationshipsRobust(batchSize)

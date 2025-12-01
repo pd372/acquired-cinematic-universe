@@ -1,15 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { clearCache } from "@/lib/cache"
 import { neon } from "@neondatabase/serverless"
+import { verifyAuthHeader } from "@/lib/auth"
 
 // Create a SQL client using the DATABASE_URL environment variable
 const sql = neon(process.env.DATABASE_URL!)
 
+// Force dynamic rendering for authenticated routes
+export const dynamic = "force-dynamic"
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    // Check for API key or other authentication
-    const authHeader = request.headers.get("authorization")
-    if (!process.env.INTERNAL_API_KEY || authHeader !== `Bearer ${process.env.INTERNAL_API_KEY}`) {
+    // Check authentication
+    if (!verifyAuthHeader(request)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 

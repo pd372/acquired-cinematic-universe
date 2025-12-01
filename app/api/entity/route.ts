@@ -4,6 +4,9 @@ import { verifyAuthHeader } from "@/lib/auth"
 
 const sql = neon(process.env.DATABASE_URL!)
 
+// Force dynamic rendering for authenticated routes
+export const dynamic = "force-dynamic"
+
 // Create entity
 export async function POST(request: NextRequest) {
   // Check authentication
