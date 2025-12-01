@@ -4,6 +4,9 @@ import { resolveEntitiesHybrid, clearHybridCaches, getHybridCacheStats } from "@
 import { getStagingStats, clearProcessedItems } from "@/lib/staging-store"
 import { verifyAuthHeader } from "@/lib/auth"
 
+// Force dynamic rendering for authenticated routes
+export const dynamic = "force-dynamic"
+
 export async function POST(request: NextRequest) {
   try {
     // Check authentication

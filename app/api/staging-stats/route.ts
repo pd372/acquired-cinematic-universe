@@ -3,6 +3,9 @@ import { getStagingStats } from "@/lib/staging-store"
 import { getEntityCacheStats } from "@/lib/entity-resolver"
 import { verifyAuthHeader } from "@/lib/auth"
 
+// Force dynamic rendering for authenticated routes
+export const dynamic = "force-dynamic"
+
 export async function GET(request: NextRequest) {
   try {
     // Check authentication

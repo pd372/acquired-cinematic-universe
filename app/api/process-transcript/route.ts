@@ -8,6 +8,9 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
+// Force dynamic rendering for authenticated routes
+export const dynamic = "force-dynamic"
+
 export async function POST(request: NextRequest) {
   try {
     // Check authentication

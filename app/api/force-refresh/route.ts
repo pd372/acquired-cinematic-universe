@@ -6,6 +6,9 @@ import { verifyAuthHeader } from "@/lib/auth"
 // Create a SQL client using the DATABASE_URL environment variable
 const sql = neon(process.env.DATABASE_URL!)
 
+// Force dynamic rendering for authenticated routes
+export const dynamic = "force-dynamic"
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     // Check authentication

@@ -4,6 +4,9 @@ import { processInParallel } from "@/lib/parallel-processor"
 import { verifyAuthHeader } from "@/lib/auth"
 import { clearCache } from "@/lib/cache"
 
+// Force dynamic rendering for authenticated routes
+export const dynamic = "force-dynamic"
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     // Check authentication
