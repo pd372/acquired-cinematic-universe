@@ -1,12 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { fetchEpisodesList, processEpisode } from "@/lib/transcript-processor"
 import { processInParallel } from "@/lib/parallel-processor"
+import { verifyAuthHeader } from "@/lib/auth"
+import { clearCache } from "@/lib/cache"
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    // Check for API key or other authentication
-    const authHeader = request.headers.get("authorization")
-    if (!process.env.INTERNAL_API_KEY || authHeader !== `Bearer ${process.env.INTERNAL_API_KEY}`) {
+    // Check authentication
+    if (!verifyAuthHeader(request)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -23,12 +24,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (result.success) {
         try {
           console.log("API: Clearing graph data cache...")
-          await fetch(`${request.nextUrl.origin}/api/cache/clear?key=graph_data`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${process.env.INTERNAL_API_KEY}`,
-            },
-          })
+          clearCache("graph_data")
           console.log("API: Cache cleared successfully")
         } catch (cacheError) {
           console.error("API: Error clearing cache:", cacheError)
@@ -59,12 +55,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
           // Try to clear the cache after processing
           try {
-            fetch(`${request.nextUrl.origin}/api/cache/clear?key=graph_data`, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${process.env.INTERNAL_API_KEY}`,
-              },
-            })
+            clearCache("graph_data")
           } catch (error) {
             console.error("Error clearing cache after batch processing:", error)
           }

@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { OpenAI } from "openai"
 import { processEpisode } from "@/lib/transcript-processor"
+import { verifyAuthHeader } from "@/lib/auth"
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -9,6 +10,11 @@ const openai = new OpenAI({
 
 export async function POST(request: NextRequest) {
   try {
+    // Check authentication
+    if (!verifyAuthHeader(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const { url, transcript, episodeId, episodeTitle } = await request.json()
 
     if (!transcript) {

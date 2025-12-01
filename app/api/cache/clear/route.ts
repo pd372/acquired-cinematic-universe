@@ -1,8 +1,14 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { clearCache } from '@/lib/cache'
+import { verifyAuthHeader } from '@/lib/auth'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    // Check authentication
+    if (!verifyAuthHeader(request)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const { key } = await request.json()
     if (!key) {
       return NextResponse.json({ error: 'Cache key is required' }, { status: 400 })
