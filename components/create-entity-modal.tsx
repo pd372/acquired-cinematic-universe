@@ -1,7 +1,7 @@
 "use client"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useState } from "react"
-import { getAuthHeaders } from "@/lib/auth"
+import { useAuthenticatedFetch } from "@/hooks/use-authenticated-fetch"
 
 interface CreateEntityModalProps {
   isOpen: boolean
@@ -23,6 +23,7 @@ export default function CreateEntityModal({ isOpen, onClose }: CreateEntityModal
   const [type, setType] = useState("Company")
   const [description, setDescription] = useState("")
   const [isCreating, setIsCreating] = useState(false)
+  const authenticatedFetch = useAuthenticatedFetch()
 
   const handleCreate = async () => {
     if (!name.trim()) {
@@ -32,12 +33,8 @@ export default function CreateEntityModal({ isOpen, onClose }: CreateEntityModal
 
     setIsCreating(true)
     try {
-      const response = await fetch("/api/entity", {
+      const response = await authenticatedFetch("/api/entity", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders(),
-        },
         body: JSON.stringify({
           name: name.trim(),
           type,
@@ -60,7 +57,6 @@ export default function CreateEntityModal({ isOpen, onClose }: CreateEntityModal
       // Refresh the page to update the graph
       window.location.reload()
     } catch (err: any) {
-      console.error("Error creating entity:", err)
       alert("Failed to create entity: " + err.message)
     } finally {
       setIsCreating(false)

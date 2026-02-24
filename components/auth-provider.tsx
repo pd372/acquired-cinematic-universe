@@ -1,37 +1,47 @@
 "use client"
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react"
-import { getClientSession, saveClientSession, clearClientSession, isSessionValid, AuthSession } from "@/lib/auth"
 
 interface AuthContextType {
   isAdmin: boolean
+  csrfToken: string | null
   login: (password: string) => Promise<boolean>
-  logout: () => void
-  checkSession: () => void
+  logout: () => Promise<void>
+  checkSession: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false)
+  const [csrfToken, setCsrfToken] = useState<string | null>(null)
 
   // Check session on mount and periodically
   useEffect(() => {
     checkSession()
 
-    // Check session every minute
-    const interval = setInterval(checkSession, 60 * 1000)
+    // Check session every 5 minutes
+    const interval = setInterval(checkSession, 5 * 60 * 1000)
     return () => clearInterval(interval)
   }, [])
 
-  function checkSession() {
-    const session = getClientSession()
-    const valid = isSessionValid(session)
-    setIsAdmin(valid)
+  async function checkSession() {
+    try {
+      const response = await fetch("/api/auth/session", {
+        credentials: "include", // Important: include cookies
+      })
 
-    if (!valid && session) {
-      // Session expired, clear it
-      clearClientSession()
+      if (response.ok) {
+        const data = await response.json()
+        setIsAdmin(data.authenticated)
+        setCsrfToken(data.csrfToken || null)
+      } else {
+        setIsAdmin(false)
+        setCsrfToken(null)
+      }
+    } catch (error) {
+      setIsAdmin(false)
+      setCsrfToken(null)
     }
   }
 
@@ -40,6 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include", // Important: include cookies
         body: JSON.stringify({ password }),
       })
 
@@ -47,23 +58,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return false
       }
 
-      const session: AuthSession = await response.json()
-      saveClientSession(session)
-      setIsAdmin(true)
-      return true
+      const data = await response.json()
+      if (data.success && data.csrfToken) {
+        setIsAdmin(true)
+        setCsrfToken(data.csrfToken)
+        return true
+      }
+
+      return false
     } catch (error) {
-      console.error("Login error:", error)
       return false
     }
   }
 
-  function logout() {
-    clearClientSession()
-    setIsAdmin(false)
+  async function logout() {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      })
+    } catch (error) {
+      // Silent logout failure
+    } finally {
+      setIsAdmin(false)
+      setCsrfToken(null)
+    }
   }
 
   return (
-    <AuthContext.Provider value={{ isAdmin, login, logout, checkSession }}>
+    <AuthContext.Provider value={{ isAdmin, csrfToken, login, logout, checkSession }}>
       {children}
     </AuthContext.Provider>
   )

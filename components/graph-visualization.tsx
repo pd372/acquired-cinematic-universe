@@ -37,6 +37,11 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
     const lockedNodeIdRef = useRef<string | null>(null)
     const highlightedNodeIdRef = useRef<string | null>(null)
 
+    // Mobile-optimized animation durations
+    const animDuration = isMobile ? 150 : 300
+    const hoverDuration = isMobile ? 100 : 200
+    const zoomDuration = isMobile ? 500 : 750
+
     useImperativeHandle(ref, () => ({
       highlightNode: (nodeId: string) => {
         if (!nodeSelection.current || !labelSelection.current || !linkSelection.current) return
@@ -53,19 +58,19 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
           // Reset all highlights
           nodeSelection.current
             .transition()
-            .duration(300)
+            .duration(animDuration)
             .attr("fill", "#6b7280")
             .attr("r", (d) => 3 + d.connections * 1)
 
           labelSelection.current
             .transition()
-            .duration(300)
+            .duration(animDuration)
             .style("fill", "#e2e8f0")
             .style("font-weight", (d) => (d.type.toLowerCase() === "episode" ? "bold" : "normal"))
 
           linkSelection.current
             .transition()
-            .duration(300)
+            .duration(animDuration)
             .attr("stroke", "#4a5568")
             .attr("stroke-opacity", 0.6)
             .attr("stroke-width", (d) => Math.sqrt(d.value))
@@ -91,21 +96,21 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
           // Animate zoom
           svgSelection.current
             .transition()
-            .duration(750)
+            .duration(zoomDuration)
             .call(zoomBehavior.current.transform as any, transform)
         }
 
         // Highlight the selected node
         nodeSelection.current
           .transition()
-          .duration(300)
+          .duration(animDuration)
           .attr("fill", (d) => (d.id === nodeId ? "#14b8a6" : "#6b7280"))
           .attr("r", (d) => (d.id === nodeId ? (3 + d.connections * 1) * 1.5 : 3 + d.connections * 1))
 
         // Highlight the selected node's label
         labelSelection.current
           .transition()
-          .duration(300)
+          .duration(animDuration)
           .style("fill", (d) => (d.id === nodeId ? "#ffffff" : "#e2e8f0"))
           .style("font-weight", (d) =>
             d.id === nodeId ? "bold" : d.type.toLowerCase() === "episode" ? "bold" : "normal",
@@ -114,7 +119,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
         // Highlight connected edges
         linkSelection.current
           .transition()
-          .duration(300)
+          .duration(animDuration)
           .attr("stroke", (linkData) => {
             const source = typeof linkData.source === "string" ? linkData.source : linkData.source.id
             const target = typeof linkData.target === "string" ? linkData.target : linkData.target.id
@@ -200,19 +205,19 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
         // Reset all highlights
         nodeSelection.current
           .transition()
-          .duration(300)
+          .duration(animDuration)
           .attr("fill", "#6b7280")
           .attr("r", (d) => 3 + d.connections * 1)
 
         labelSelection.current
           .transition()
-          .duration(300)
+          .duration(animDuration)
           .style("fill", "#e2e8f0")
           .style("font-weight", (d) => (d.type.toLowerCase() === "episode" ? "bold" : "normal"))
 
         linkSelection.current
           .transition()
-          .duration(300)
+          .duration(animDuration)
           .attr("stroke", "#4a5568")
           .attr("stroke-opacity", 0.6)
           .attr("stroke-width", (d) => Math.sqrt(d.value))
@@ -222,13 +227,13 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
       // Apply locked highlight with blue glow
       nodeSelection.current
         .transition()
-        .duration(300)
+        .duration(animDuration)
         .attr("fill", (d) => (d.id === nodeId ? "#3b82f6" : "#6b7280")) // Blue for locked node
         .attr("r", (d) => (d.id === nodeId ? (3 + d.connections * 1) * 1.5 : 3 + d.connections * 1))
 
       labelSelection.current
         .transition()
-        .duration(300)
+        .duration(animDuration)
         .style("fill", (d) => (d.id === nodeId ? "#ffffff" : "#e2e8f0"))
         .style("font-weight", (d) =>
           d.id === nodeId ? "bold" : d.type.toLowerCase() === "episode" ? "bold" : "normal",
@@ -236,7 +241,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
 
       linkSelection.current
         .transition()
-        .duration(300)
+        .duration(animDuration)
         .attr("stroke", (linkData) => {
           const source = typeof linkData.source === "string" ? linkData.source : linkData.source.id
           const target = typeof linkData.target === "string" ? linkData.target : linkData.target.id
@@ -264,8 +269,6 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
       if (!graphData || !svgRef.current || isLoading) {
         return
       }
-
-      console.log("Rendering graph with", graphData.nodes.length, "nodes and", graphData.links.length, "links")
 
       const width = svgRef.current.clientWidth
       const height = svgRef.current.clientHeight
@@ -326,6 +329,25 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
 
       // Let D3 handle initial positioning naturally - don't pre-assign positions
 
+      // Mobile-specific performance optimizations
+      const mobileConfig = {
+        chargeStrength: -300, // Lighter physics calculations
+        linkDistance: 120,
+        collideRadius: (d: NodeData) => 3 + d.connections * 1.0 + 10,
+        collideIterations: 1, // Fewer collision checks
+        velocityDecay: 0.7, // Faster settling
+      }
+
+      const desktopConfig = {
+        chargeStrength: -800, // Stronger repulsion
+        linkDistance: 180,
+        collideRadius: (d: NodeData) => 3 + d.connections * 1.5 + 20,
+        collideIterations: 2,
+        velocityDecay: 0.6,
+      }
+
+      const config = isMobile ? mobileConfig : desktopConfig
+
       const simulation = d3
         .forceSimulation<NodeData, LinkData>(graphData.nodes)
         .force(
@@ -333,23 +355,22 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
           d3
             .forceLink<NodeData, LinkData>(graphData.links)
             .id((d) => d.id)
-            .distance(180), // Increased distance for better label readability
+            .distance(config.linkDistance),
         )
-        .force("charge", d3.forceManyBody().strength(-800)) // Stronger repulsion to spread nodes out
-        .force("center", d3.forceCenter(width / 2, height / 2).strength(0.15)) // Maintain inward gravity
+        .force("charge", d3.forceManyBody().strength(config.chargeStrength))
+        .force("center", d3.forceCenter(width / 2, height / 2).strength(0.15))
         .force(
           "collide",
           d3
             .forceCollide<NodeData>()
-            .radius((d) => 3 + d.connections * 1.5 + 20) // More space between nodes
-            .iterations(2),
+            .radius(config.collideRadius)
+            .iterations(config.collideIterations),
         )
-        .force("radial", d3.forceRadial<NodeData>(0, width / 2, height / 2).strength((d) => {
-          // Stronger radial force for nodes with fewer connections (orphans)
-          // This keeps them from drifting to the edges
+        // Skip radial force on mobile for better performance
+        .force("radial", isMobile ? null : d3.forceRadial<NodeData>(0, width / 2, height / 2).strength((d) => {
           return d.connections < 5 ? 0.3 : 0.1
         }))
-        .velocityDecay(0.6) // Higher friction for less drift
+        .velocityDecay(config.velocityDecay)
 
       const link = g
         .append("g")
@@ -365,7 +386,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
           // Highlight the hovered edge and make it thicker for easier clicking
           d3.select(this)
             .transition()
-            .duration(200)
+            .duration(hoverDuration)
             .attr("stroke", "#14b8a6")
             .attr("stroke-opacity", 1)
             .attr("stroke-width", 4) // Thicker on hover for easier clicking
@@ -404,7 +425,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
             .style("left", (mouseX + 10) + "px")
             .style("top", (mouseY - 10) + "px")
             .transition()
-            .duration(200)
+            .duration(hoverDuration)
             .style("opacity", 1)
         })
         .on("mousemove", function(event, d) {
@@ -443,7 +464,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
           // Reset the edge to its appropriate state
           d3.select(this)
             .transition()
-            .duration(200)
+            .duration(hoverDuration)
             .attr("stroke", restoreColor)
             .attr("stroke-opacity", restoreOpacity)
             .attr("stroke-width", restoreWidth)
@@ -485,14 +506,14 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
           // Highlight the hovered node with solid teal
           d3.select(this)
             .transition()
-            .duration(200)
+            .duration(hoverDuration)
             .attr("fill", "#14b8a6") // Solid teal color
             .attr("r", (3 + d.connections * 1) * 1.2)
 
           // Highlight connected edges with solid teal
           link
             .transition()
-            .duration(200)
+            .duration(hoverDuration)
             .attr("stroke", (linkData) => {
               const source = typeof linkData.source === "string" ? linkData.source : linkData.source.id
               const target = typeof linkData.target === "string" ? linkData.target : linkData.target.id
@@ -512,7 +533,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
           // Highlight the label for the hovered node
           labels
             .transition()
-            .duration(200)
+            .duration(hoverDuration)
             .style("fill", (labelData) => (labelData.id === d.id ? "#ffffff" : "#e2e8f0")) // White for hovered, light gray for others
             .style("font-weight", (labelData) => (labelData.id === d.id ? "bold" : "normal"))
         })
@@ -521,14 +542,14 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
           if (lockedNodeIdRef.current === d.id) {
             d3.select(this)
               .transition()
-              .duration(200)
+              .duration(hoverDuration)
               .attr("fill", "#3b82f6") // Back to blue locked color
               .attr("r", (3 + d.connections * 1) * 1.5)
 
             // Keep edges highlighted in blue
             link
               .transition()
-              .duration(200)
+              .duration(hoverDuration)
               .attr("stroke", (linkData) => {
                 const source = typeof linkData.source === "string" ? linkData.source : linkData.source.id
                 const target = typeof linkData.target === "string" ? linkData.target : linkData.target.id
@@ -548,7 +569,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
             // Keep label highlighted
             labels
               .transition()
-              .duration(200)
+              .duration(hoverDuration)
               .style("fill", (labelData) => (labelData.id === d.id ? "#ffffff" : "#e2e8f0"))
               .style("font-weight", (labelData) => (labelData.id === d.id ? "bold" : labelData.type.toLowerCase() === "episode" ? "bold" : "normal"))
             return
@@ -560,14 +581,14 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
           // Reset the hovered node
           d3.select(this)
             .transition()
-            .duration(200)
+            .duration(hoverDuration)
             .attr("fill", "#6b7280") // Back to gray
             .attr("r", 3 + d.connections * 1)
 
           // Reset all edges
           link
             .transition()
-            .duration(200)
+            .duration(hoverDuration)
             .attr("stroke", "#4a5568")
             .attr("stroke-opacity", 0.6)
             .attr("stroke-width", (linkData) => Math.sqrt(linkData.value))
@@ -575,7 +596,7 @@ const GraphVisualization = forwardRef<GraphVisualizationRef, GraphVisualizationP
           // Reset all labels
           labels
             .transition()
-            .duration(200)
+            .duration(hoverDuration)
             .style("fill", "#e2e8f0") // Back to light gray
             .style("font-weight", (d) => (d.type.toLowerCase() === "episode" ? "bold" : "normal"))
         })

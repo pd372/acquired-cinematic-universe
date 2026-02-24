@@ -17,6 +17,7 @@
     "resolve-relationships": "tsx scripts/resolve-relationships.ts"
   },
   "dependencies": {
+    "@edge-runtime/cookies": "^6.0.0",
     "@neondatabase/serverless": "latest",
     "@prisma/client": "latest",
     "@radix-ui/react-dialog": "^1.1.1",
@@ -30,8 +31,10 @@
     "cheerio": "latest",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "csrf": "^3.1.0",
     "d3": "latest",
     "dotenv": "latest",
+    "iron-session": "^8.0.4",
     "lucide-react": "^0.454.0",
     "next": "14.2.16",
     "next-themes": "^0.3.0",
@@ -45,7 +48,7 @@
     "tailwindcss-animate": "^1.0.7",
     "uuid": "latest",
     "ws": "latest",
-    "zod": "latest"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/d3": "^7.4.3",
