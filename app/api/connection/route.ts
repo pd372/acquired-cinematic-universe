@@ -1,6 +1,8 @@
 import { NextResponse, NextRequest } from "next/server"
 import { neon } from "@neondatabase/serverless"
-import { verifyAuthHeader } from "@/lib/auth"
+import { verifyAuthAndCSRF } from "@/lib/session"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { v4 as uuidv4 } from "uuid"
 
 const sql = neon(process.env.DATABASE_URL!)
 
@@ -9,8 +11,15 @@ export const dynamic = "force-dynamic"
 
 // Create a manual connection between two entities
 export async function POST(request: NextRequest) {
-  // Check authentication
-  if (!verifyAuthHeader(request)) {
+  // Apply rate limiting
+  const rateLimitResponse = rateLimit(request, RATE_LIMITS.API_WRITE)
+  if (rateLimitResponse) {
+    return rateLimitResponse
+  }
+
+  // Check authentication and CSRF
+  const session = verifyAuthAndCSRF(request)
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -44,11 +53,10 @@ export async function POST(request: NextRequest) {
 
     if (manualEpisode.length === 0) {
       // Create the manual episode if it doesn't exist
-      // Generate a cuid-like ID using a combination of timestamp and random string
-      const cuid = `c${Date.now().toString(36)}${Math.random().toString(36).substring(2, 11)}`
+      const episodeId = uuidv4()
       manualEpisode = await sql`
         INSERT INTO "Episode" (id, title, url, "publishedAt")
-        VALUES (${cuid}, 'Manual Admin Connections', 'manual://admin-created', NOW())
+        VALUES (${episodeId}, 'Manual Admin Connections', 'manual://admin-created', NOW())
         RETURNING id
       `
     }
@@ -82,12 +90,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         connectionId: existing[0].id,
-        message: "Connection already exists, incremented strength"
+        message: "Connection already exists, incremented strength",
       })
     }
 
-    // Create the connection with a generated cuid
-    const connectionId = `c${Date.now().toString(36)}${Math.random().toString(36).substring(2, 11)}`
+    // Create the connection with UUID
+    const connectionId = uuidv4()
     const connection = await sql`
       INSERT INTO "Connection" (id, "episodeId", "sourceEntityId", "targetEntityId", strength, description)
       VALUES (${connectionId}, ${episodeId}, ${sourceEntityId}, ${targetEntityId}, 1, ${description || null})
@@ -96,10 +104,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      connectionId: connection[0].id
+      connectionId: connection[0].id,
     })
-  } catch (error: any) {
-    console.error("Connection create error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to create connection" }, { status: 500 })
   }
 }

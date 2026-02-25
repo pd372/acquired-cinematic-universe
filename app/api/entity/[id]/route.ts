@@ -1,45 +1,93 @@
 import { NextResponse, NextRequest } from "next/server"
 import { neon } from "@neondatabase/serverless"
-import { verifyAuthHeader } from "@/lib/auth"
+import { verifyAuthAndCSRF } from "@/lib/session"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { updateEntitySchema } from "@/lib/validation"
 
 const sql = neon(process.env.DATABASE_URL!)
 
 // Force dynamic rendering for authenticated routes
 export const dynamic = "force-dynamic"
 
-// Update entity name
+// Update entity
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  // Check authentication
-  if (!verifyAuthHeader(request)) {
+  // Apply rate limiting
+  const rateLimitResponse = rateLimit(request, RATE_LIMITS.API_WRITE)
+  if (rateLimitResponse) {
+    return rateLimitResponse
+  }
+
+  // Check authentication and CSRF
+  const session = verifyAuthAndCSRF(request)
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
   try {
     const entityId = params.id
-    const { name } = await request.json()
+    const body = await request.json()
 
-    if (!name || !name.trim()) {
-      return NextResponse.json({ error: "Name is required" }, { status: 400 })
+    // Validate input
+    const validation = updateEntitySchema.safeParse(body)
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: "Invalid input", details: validation.error.issues },
+        { status: 400 },
+      )
     }
 
-    // Update the entity name
-    await sql`
+    const updates = validation.data
+
+    // Build dynamic update query
+    const setClauses: string[] = []
+    const values: any[] = []
+
+    if (updates.name !== undefined) {
+      setClauses.push(`name = $${values.length + 1}`)
+      values.push(updates.name)
+    }
+    if (updates.type !== undefined) {
+      setClauses.push(`type = $${values.length + 1}`)
+      values.push(updates.type)
+    }
+    if (updates.description !== undefined) {
+      setClauses.push(`description = $${values.length + 1}`)
+      values.push(updates.description)
+    }
+
+    if (setClauses.length === 0) {
+      return NextResponse.json({ error: "No fields to update" }, { status: 400 })
+    }
+
+    // Update the entity
+    const result = await sql`
       UPDATE "Entity"
-      SET name = ${name.trim()}
+      SET ${sql.unsafe(setClauses.join(", "))}
       WHERE id = ${entityId}
+      RETURNING id, name, type, description
     `
 
-    return NextResponse.json({ success: true, name: name.trim() })
-  } catch (error: any) {
-    console.error("Entity update error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    if (result.length === 0) {
+      return NextResponse.json({ error: "Entity not found" }, { status: 404 })
+    }
+
+    return NextResponse.json({ success: true, entity: result[0] })
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to update entity" }, { status: 500 })
   }
 }
 
 // Delete entity
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
-  // Check authentication
-  if (!verifyAuthHeader(request)) {
+  // Apply rate limiting
+  const rateLimitResponse = rateLimit(request, RATE_LIMITS.API_WRITE)
+  if (rateLimitResponse) {
+    return rateLimitResponse
+  }
+
+  // Check authentication and CSRF
+  const session = verifyAuthAndCSRF(request)
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -47,14 +95,18 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     const entityId = params.id
 
     // Delete the entity (cascades to EntityMention and Connection)
-    await sql`
+    const result = await sql`
       DELETE FROM "Entity"
       WHERE id = ${entityId}
+      RETURNING id
     `
 
+    if (result.length === 0) {
+      return NextResponse.json({ error: "Entity not found" }, { status: 404 })
+    }
+
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("Entity delete error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to delete entity" }, { status: 500 })
   }
 }
