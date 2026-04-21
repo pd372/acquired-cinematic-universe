@@ -14,7 +14,8 @@
     "bulk-process": "tsx scripts/bulk-process-episodes.ts",
     "extract": "tsx scripts/extract-episodes.ts",
     "resolve-entities": "tsx scripts/resolve-entities.ts",
-    "resolve-relationships": "tsx scripts/resolve-relationships.ts"
+    "resolve-relationships": "tsx scripts/resolve-relationships.ts",
+    "rotate-env": "tsx scripts/rotate-env-vars.ts"
   },
   "dependencies": {
     "@edge-runtime/cookies": "^6.0.0",
